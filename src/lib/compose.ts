@@ -101,6 +101,11 @@ export function addOverrideLabels(opts: OverrideOptions): void {
   labels[`traefik.http.routers.${opts.routerName}.entrypoints`] = "web";
   labels[`traefik.http.services.${opts.routerName}.loadbalancer.server.port`] =
     String(opts.port);
+  labels[
+    `traefik.http.middlewares.${opts.routerName}-nocache.headers.customresponseheaders.CDN-Cache-Control`
+  ] = "no-store";
+  labels[`traefik.http.routers.${opts.routerName}.middlewares`] =
+    `${opts.routerName}-nocache`;
 
   const labelsNode = doc.createNode(labels);
   labelsNode.commentBefore = DEVTUNNEL_COMMENT;
