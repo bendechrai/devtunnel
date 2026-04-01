@@ -153,6 +153,18 @@ Your project container connects to Traefik via the shared `devtun` Docker networ
 
 Traefik dashboard: http://localhost:8080 -- shows all discovered routes and their health.
 
+## Releasing
+
+Pushes to `main` automatically publish to npm via [semantic-release](https://github.com/semantic-release/semantic-release). The version bump is determined by commit messages:
+
+- `fix: ...` - patch release (0.0.x)
+- `feat: ...` - minor release (0.x.0)
+- `feat!: ...` or `BREAKING CHANGE:` in the commit body - major release (x.0.0)
+
+Commits that don't match a release type (e.g. `chore:`, `docs:`, `ci:`) won't trigger a release.
+
+The pipeline builds, type-checks, verifies dependency signatures, then publishes with npm provenance attestations. It also auto-generates a CHANGELOG and commits the version bump back to the repo.
+
 ## Troubleshooting
 
 **522 error (origin unreachable)**: The tunnel can't reach Traefik, or Traefik can't reach your container. Check that `devtun up` has been run, and that your project container is on the `devtun` network. Run `docker network inspect devtun` to see connected containers.
