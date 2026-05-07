@@ -1,3 +1,13 @@
+# [1.0.0](https://github.com/bendechrai/devtunnel/compare/v0.2.1...v1.0.0) (2026-05-07)
+
+
+* feat!: require explicit service and port in devtun add ([6cfaab5](https://github.com/bendechrai/devtunnel/commit/6cfaab55c4e02208d7712e17590e2bc0f87439ab))
+
+
+### BREAKING CHANGES
+
+* `devtun add` requires two additional arguments.
+
 ## [0.2.1](https://github.com/bendechrai/devtunnel/compare/v0.2.0...v0.2.1) (2026-05-07)
 
 
