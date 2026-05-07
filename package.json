@@ -1,6 +1,6 @@
 {
   "name": "devtun",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Public HTTPS URLs for local Docker containers via Cloudflare Tunnels",
   "type": "module",
   "bin": {

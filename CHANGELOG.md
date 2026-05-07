@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/bendechrai/devtunnel/compare/v1.0.0...v1.0.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* explicitly include README.md in package files ([7caf069](https://github.com/bendechrai/devtunnel/commit/7caf069182cd5bec56ddf14f0336ccc500bea4ac))
+
 # [1.0.0](https://github.com/bendechrai/devtunnel/compare/v0.2.1...v1.0.0) (2026-05-07)
 
 
