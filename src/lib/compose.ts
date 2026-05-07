@@ -8,7 +8,7 @@ import { parseDocument, Document, YAMLMap } from "yaml";
 export function writeInfraCompose(): void {
   const content = `services:
   traefik:
-    image: traefik:v3.2
+    image: traefik:v3
     container_name: devtun-traefik
     command:
       - "--api.insecure=true"
