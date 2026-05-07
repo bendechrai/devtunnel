@@ -49,6 +49,51 @@ networks:
 
 const DEVTUNNEL_COMMENT = " devtun-managed";
 
+export interface OverrideMapping {
+  routerName: string;
+  serviceName: string;
+  port: number;
+}
+
+export function readOverrideMappings(projectDir: string): OverrideMapping[] {
+  const overridePath = join(projectDir, "docker-compose.override.yml");
+  if (!existsSync(overridePath)) return [];
+
+  const content = readFileSync(overridePath, "utf-8");
+  const doc = parseDocument(content);
+  const services = doc.get("services") as YAMLMap | undefined;
+  if (!services) return [];
+
+  const mappings: OverrideMapping[] = [];
+
+  for (const item of services.items) {
+    const serviceName = String(item.key);
+    const service = services.get(serviceName) as YAMLMap | undefined;
+    if (!service) continue;
+
+    const labels = service.get("labels") as YAMLMap | undefined;
+    if (!(labels instanceof YAMLMap)) continue;
+
+    // Extract router names and ports from traefik labels
+    const routers = new Map<string, number>();
+    for (const l of labels.items) {
+      const key = String(l.key);
+      const portMatch = key.match(
+        /^traefik\.http\.services\.(.+?)\.loadbalancer\.server\.port$/
+      );
+      if (portMatch) {
+        routers.set(portMatch[1], parseInt(String(l.value), 10));
+      }
+    }
+
+    for (const [routerName, port] of routers) {
+      mappings.push({ routerName, serviceName, port });
+    }
+  }
+
+  return mappings;
+}
+
 interface OverrideOptions {
   projectDir: string;
   serviceName: string;
@@ -134,7 +179,10 @@ export function addOverrideLabels(opts: OverrideOptions): void {
   writeFileSync(overridePath, doc.toString());
 }
 
-export function removeOverrideLabels(projectDir: string): void {
+export function removeOverrideLabels(
+  projectDir: string,
+  routerName: string
+): void {
   const overridePath = join(projectDir, "docker-compose.override.yml");
   if (!existsSync(overridePath)) return;
 
@@ -144,7 +192,7 @@ export function removeOverrideLabels(projectDir: string): void {
   const services = doc.get("services") as YAMLMap | undefined;
   if (!services) return;
 
-  // Find all services that have traefik labels (devtun-managed)
+  // Find the service that has labels for this router name
   for (const item of services.items) {
     const serviceName = String(item.key);
     const service = services.get(serviceName) as YAMLMap | undefined;
@@ -153,36 +201,57 @@ export function removeOverrideLabels(projectDir: string): void {
     const labels = service.get("labels") as YAMLMap | undefined;
     if (!(labels instanceof YAMLMap)) continue;
 
-    const hasTraefik = labels.items.some((l) =>
-      String(l.key).startsWith("traefik.")
-    );
-    if (!hasTraefik) continue;
+    // Check if this service has labels for the target router
+    const hasRouter = labels.items.some((l) => {
+      const key = String(l.key);
+      return (
+        key.includes(`.routers.${routerName}.`) ||
+        key.includes(`.services.${routerName}.`) ||
+        key.includes(`.middlewares.${routerName}`)
+      );
+    });
+    if (!hasRouter) continue;
 
-    // Remove traefik labels
+    // Remove labels for this router
     const toRemove: string[] = [];
     for (const l of labels.items) {
       const key = String(l.key);
-      if (key.startsWith("traefik.")) {
+      if (
+        key.includes(`.routers.${routerName}.`) ||
+        key.includes(`.services.${routerName}.`) ||
+        key.includes(`.middlewares.${routerName}`)
+      ) {
         toRemove.push(key);
       }
     }
     for (const key of toRemove) {
       labels.delete(key);
     }
+
+    // If no traefik labels remain, remove traefik.enable too
+    const remainingTraefik = labels.items.some((l) =>
+      String(l.key).startsWith("traefik.")
+    );
+    if (!remainingTraefik) {
+      labels.delete("traefik.enable");
+    }
+
     if (labels.items.length === 0) {
       service.delete("labels");
     }
 
-    // Remove devtun from service networks
-    const serviceJson = service.toJSON();
-    if (Array.isArray(serviceJson?.networks)) {
-      const nets = serviceJson.networks.filter(
-        (n: string) => n !== "devtun"
-      );
-      if (nets.length === 0) {
-        service.delete("networks");
-      } else {
-        service.set("networks", nets);
+    // Remove devtun network only if no traefik labels remain on this service
+    if (!remainingTraefik) {
+      const serviceJson = service.toJSON();
+      if (Array.isArray(serviceJson?.networks)) {
+        const nets = serviceJson.networks.filter(
+          (n: string) => n !== "devtun"
+        );
+        if (nets.length === 0) {
+          service.delete("networks");
+        } else {
+          service.set("networks", nets);
+        }
       }
     }
 
@@ -193,11 +262,20 @@ export function removeOverrideLabels(projectDir: string): void {
   }
 
   // Remove top-level devtun network if no services reference it
-  const networks = doc.get("networks") as YAMLMap | undefined;
-  if (networks) {
-    networks.delete("devtun");
-    if (networks instanceof YAMLMap && networks.items.length === 0) {
-      doc.delete("networks");
+  const anyDevtunRef = services.items.some((item) => {
+    const service = services.get(String(item.key)) as YAMLMap | undefined;
+    if (!service) return false;
+    const nets = service.toJSON()?.networks;
+    return Array.isArray(nets) && nets.includes("devtun");
+  });
+
+  if (!anyDevtunRef) {
+    const networks = doc.get("networks") as YAMLMap | undefined;
+    if (networks) {
+      networks.delete("devtun");
+      if (networks instanceof YAMLMap && networks.items.length === 0) {
+        doc.delete("networks");
+      }
     }
   }
 
@@ -215,40 +293,3 @@ export function removeOverrideLabels(projectDir: string): void {
   }
 }
 
-export function detectServiceAndPort(
-  projectDir: string
-): { serviceName: string; port: number } | null {
-  const composePath = join(projectDir, "docker-compose.yml");
-  if (!existsSync(composePath)) return null;
-
-  const content = readFileSync(composePath, "utf-8");
-  const doc = parseDocument(content);
-  const services = doc.get("services") as YAMLMap | undefined;
-  if (!services) return null;
-
-  // If only one service, use it
-  const serviceNames = services.items.map((item) => String(item.key));
-  if (serviceNames.length === 0) return null;
-
-  // Find the first service with a port mapping
-  for (const name of serviceNames) {
-    const service = services.get(name) as YAMLMap | undefined;
-    if (!service) continue;
-
-    const ports = service.toJSON()?.ports;
-    if (Array.isArray(ports) && ports.length > 0) {
-      const portStr = String(ports[0]);
-      // Parse "3000:3000" or "8080:3000" or just "3000"
-      const match = portStr.match(/:(\d+)$/) ?? portStr.match(/^(\d+)$/);
-      if (match) {
-        return { serviceName: name, port: parseInt(match[1], 10) };
-      }
-    }
-  }
-
-  // Fallback: prefer common app service names, then first service
-  const preferred = ["web", "app", "server", "api"];
-  const fallbackName =
-    serviceNames.find((n) => preferred.includes(n)) ?? serviceNames[0];
-  return { serviceName: fallbackName, port: 3000 };
-}

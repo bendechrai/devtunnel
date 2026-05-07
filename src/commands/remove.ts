@@ -51,7 +51,7 @@ export async function remove(name?: string): Promise<void> {
 
   // --- Override file ---
   const projectDir = process.cwd();
-  removeOverrideLabels(projectDir);
+  removeOverrideLabels(projectDir, name);
   out.info("Cleaned docker-compose.override.yml");
   out.blank();
 

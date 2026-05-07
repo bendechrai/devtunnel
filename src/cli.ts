@@ -26,7 +26,7 @@ Setup:
   down                  Stop Traefik + tunnel containers
 
 Projects:
-  add <name>            Register <name> and configure Docker labels
+  add <name> <svc> <port>  Register <name> routing to <svc> on <port>
   remove <name>         Remove a project hostname
   list                  List all registered projects
   status [name]         Show project or infrastructure status
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
       return setup();
     case "init":
     case "add":
-      return add(args[0]);
+      return add(args[0], args[1], args[2]);
     case "remove":
     case "rm":
       return remove(args[0]);

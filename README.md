@@ -90,21 +90,27 @@ The only manual step is enabling Cloudflare for SaaS in the dashboard the first 
 From your project directory:
 
 ```bash
-devtun add myapp
+devtun add myapp web 3000
 ```
 
 This:
 1. Creates a DNS record and edge SSL certificate for `myapp.<your-dev-subdomain>`
-2. Detects your Docker Compose service and port
-3. Generates a `docker-compose.override.yml` with Traefik labels
-4. Optionally restarts your containers
+2. Generates a `docker-compose.override.yml` with Traefik labels routing to the `web` service on port `3000`
+3. Optionally restarts your containers
+
+You can map multiple hostnames to different services in the same project:
+
+```bash
+devtun add myapp web 3000
+devtun add myapp-mail mail 8025
+```
 
 SSL typically activates within seconds.
 
 ### Manage projects
 
 ```bash
-devtun add <name>        # Register hostname and configure Docker labels
+devtun add <name> <svc> <port>  # Register hostname routing to service on port
 devtun list              # List all registered project hostnames
 devtun status <name>     # Check SSL and routing status
 devtun remove <name>     # Remove hostname, DNS record, and labels
@@ -133,12 +139,10 @@ devtun config get <key>  # Get a config value
 devtun setup
 
 # In your project directory:
-devtun add myapp
+devtun add myapp web 3000
 
 # Done -- https://myapp.dev.example.com/ is live
 ```
-
-devtun auto-detects your service and port from `docker-compose.yml` and generates the override file for you.
 
 ## How it works
 
@@ -169,7 +173,7 @@ The pipeline builds, type-checks, verifies dependency signatures, then publishes
 
 **522 error (origin unreachable)**: The tunnel can't reach Traefik, or Traefik can't reach your container. Check that `devtun up` has been run, and that your project container is on the `devtun` network. Run `docker network inspect devtun` to see connected containers.
 
-**SSL handshake failure**: The hostname probably doesn't have a custom hostname registered. Run `devtun status <name>` to check, or `devtun add <name>` to register it.
+**SSL handshake failure**: The hostname probably doesn't have a custom hostname registered. Run `devtun status <name>` to check, or `devtun add <name> <service> <port>` to register it.
 
 **Tunnel not connecting**: Run `docker compose logs tunnel` in `~/.devtun/`. If the tunnel token is missing, re-run `devtun setup`.
 

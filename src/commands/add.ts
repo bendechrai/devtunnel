@@ -3,18 +3,24 @@ import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
-import {
-  addOverrideLabels,
-  detectServiceAndPort,
-} from "../lib/compose.js";
-import { ask, confirm } from "../lib/prompt.js";
+import { addOverrideLabels } from "../lib/compose.js";
+import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
 
-export async function add(name?: string): Promise<void> {
-  if (!name) {
-    throw new Error("Usage: devtun add <name>");
+export async function add(
+  name?: string,
+  service?: string,
+  portArg?: string
+): Promise<void> {
+  if (!name || !service || !portArg) {
+    throw new Error("Usage: devtun add <name> <service> <port>");
   }
   validateProjectName(name);
+
+  const port = parseInt(portArg, 10);
+  if (isNaN(port) || port <= 0 || port > 65535) {
+    throw new Error(`Invalid port: ${portArg}`);
+  }
 
   const config = loadConfig();
   const token = resolveToken(config);
@@ -77,35 +83,15 @@ export async function add(name?: string): Promise<void> {
   out.step(2, "Docker Compose override...");
 
   const projectDir = process.cwd();
-  const detected = detectServiceAndPort(projectDir);
-
-  let serviceName: string;
-  let port: number;
-
-  if (detected) {
-    out.info(`Detected service: ${detected.serviceName} (port ${detected.port})`);
-    const useDetected = await confirm("Use these settings?");
-    if (useDetected) {
-      serviceName = detected.serviceName;
-      port = detected.port;
-    } else {
-      serviceName = await ask("Service name: ");
-      port = parseInt(await ask("Container port: "), 10);
-    }
-  } else {
-    out.info("No docker-compose.yml found in current directory.");
-    serviceName = await ask("Service name: ");
-    port = parseInt(await ask("Container port: "), 10);
-  }
 
   addOverrideLabels({
     projectDir,
-    serviceName,
+    serviceName: service,
     hostname,
     routerName: name,
     port,
   });
-  out.success("Updated docker-compose.override.yml");
+  out.success(`Updated docker-compose.override.yml (${service}:${port})`);
   out.blank();
 
   // --- Offer to restart ---
