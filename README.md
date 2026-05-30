@@ -122,6 +122,7 @@ devtun remove <name>     # Remove hostname, DNS record, and labels
 devtun up                # Start Traefik + tunnel containers
 devtun down              # Stop Traefik + tunnel containers
 devtun autostart enable  # Start on login (macOS/Linux)
+devtun doctor            # Health-check config, Cloudflare, Docker
 ```
 
 ### Configuration
@@ -131,6 +132,20 @@ devtun config            # Show current configuration
 devtun config set <k> <v>  # Update a config value
 devtun config get <key>  # Get a config value
 ```
+
+### Changing your domain or subdomain
+
+If you need to move all your projects to a new domain or subdomain, the order matters: `devtun remove` uses the *current* config to know which Cloudflare zone to clean up.
+
+1. List what's registered: `devtun list`
+2. For each project, run `devtun remove <name>` from that project's directory. This deletes the Cloudflare custom hostname, DNS record, and TXT verification record, and cleans the project's `docker-compose.override.yml`.
+3. Change the config: `devtun config set domain new.example.com` (and `devtun config set devSubdomain dev.new.example.com` if needed). `devtun` will verify your Cloudflare API token has access to the new zone, refuse the change if any custom hostnames are still registered on the old zone (use `--force` to override), and clear the cached `zoneId`/`tunnelId` so setup re-resolves them.
+4. Run `devtun setup` again. It'll create a new tunnel and SaaS setup for the new zone.
+5. Re-add each project: `devtun add <name> <service> <port>`.
+
+If you skipped step 2, the custom hostnames on the old zone become orphans (they'll keep using slots toward your 100-hostname SaaS free limit). Clean them up in the Cloudflare dashboard, or temporarily restore the old domain in `~/.devtun/config.json`, run `devtun remove` for each, then switch back.
+
+Run `devtun doctor` at any point to verify the current state of your config, tunnel, and zone.
 
 ### Full workflow for a new project
 
@@ -170,6 +185,8 @@ Commits that don't match a release type (e.g. `chore:`, `docs:`, `ci:`) won't tr
 The pipeline builds, type-checks, verifies dependency signatures, then publishes with npm provenance attestations. It also auto-generates a CHANGELOG and commits the version bump back to the repo.
 
 ## Troubleshooting
+
+**First step for any problem**: run `devtun doctor`. It validates your Cloudflare token, checks that your tunnel and zone are still in sync with your config, lists any orphaned custom hostnames (registered on a subdomain other than your current one), and reports whether the Docker stack is up.
 
 **522 error (origin unreachable)**: The tunnel can't reach Traefik, or Traefik can't reach your container. Check that `devtun up` has been run, and that your project container is on the `devtun` network. Run `docker network inspect devtun` to see connected containers.
 
