@@ -7,6 +7,7 @@ import { up } from "./commands/up.js";
 import { down } from "./commands/down.js";
 import { autostart } from "./commands/autostart.js";
 import { config } from "./commands/config.js";
+import { doctor } from "./commands/doctor.js";
 import * as out from "./lib/output.js";
 import { createRequire } from "module";
 
@@ -38,6 +39,7 @@ Config:
 
 System:
   autostart <action>    Manage start-on-boot (enable|disable|status)
+  doctor                Run health checks on config and Cloudflare state
   help                  Show this help
   version               Show version
 `);
@@ -70,6 +72,8 @@ async function main(): Promise<void> {
       return config(args);
     case "autostart":
       return autostart(args[0]);
+    case "doctor":
+      return doctor();
     case "version":
     case "--version":
     case "-v":
