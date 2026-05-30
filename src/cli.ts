@@ -31,17 +31,17 @@ Projects:
                            Flags: --restart | --no-restart | --yes (-y)
   remove <name>         Remove a project hostname
                            Flags: --restart | --no-restart | --yes (-y)
-  list                  List all registered projects
-  status [name]         Show project or infrastructure status
+  list                  List all registered projects                 [--json]
+  status [name]         Show project or infrastructure status        [--json]
 
 Config:
-  config                Show current configuration
-  config set <k> <v>    Update a config value
-  config get <key>      Get a config value
+  config                Show current configuration                   [--json]
+  config set <k> <v>    Update a config value                       [--force]
+  config get <key>      Get a config value                           [--json]
 
 System:
   autostart <action>    Manage start-on-boot (enable|disable|status)
-  doctor                Run health checks on config and Cloudflare state
+  doctor                Health checks on config and Cloudflare state [--json]
   help                  Show this help
   version               Show version
 `);
@@ -61,9 +61,9 @@ async function main(): Promise<void> {
       return remove(args);
     case "list":
     case "ls":
-      return list();
+      return list(args);
     case "status":
-      return status(args[0]);
+      return status(args);
     case "up":
     case "start":
       return up();
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     case "autostart":
       return autostart(args[0]);
     case "doctor":
-      return doctor();
+      return doctor(args);
     case "version":
     case "--version":
     case "-v":

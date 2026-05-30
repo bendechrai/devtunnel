@@ -6,39 +6,66 @@ const RED = "\x1b[31m";
 const CYAN = "\x1b[36m";
 const RESET = "\x1b[0m";
 
+let jsonMode = false;
+
+export function setJsonMode(on: boolean): void {
+  jsonMode = on;
+}
+
+export function isJsonMode(): boolean {
+  return jsonMode;
+}
+
+/**
+ * Emit a single JSON document to stdout. Pretty-printed with a trailing
+ * newline. The only thing that writes to stdout when JSON mode is on.
+ */
+export function json(payload: unknown): void {
+  process.stdout.write(JSON.stringify(payload, null, 2) + "\n");
+}
+
 export function header(text: string): void {
+  if (jsonMode) return;
   console.log(`\n${BOLD}${text}${RESET}\n`);
 }
 
 export function step(n: number, text: string): void {
+  if (jsonMode) return;
   console.log(`${BOLD}Step ${n}:${RESET} ${text}`);
 }
 
 export function info(text: string): void {
+  if (jsonMode) return;
   console.log(`  ${text}`);
 }
 
 export function success(text: string): void {
+  if (jsonMode) return;
   console.log(`  ${GREEN}${text}${RESET}`);
 }
 
 export function warn(text: string): void {
+  if (jsonMode) return;
   console.log(`  ${YELLOW}${text}${RESET}`);
 }
 
 export function error(text: string): void {
+  // Errors always go to stderr, even in JSON mode.
   console.error(`${RED}Error:${RESET} ${text}`);
 }
 
 export function dim(text: string): void {
+  if (jsonMode) return;
   console.log(`  ${DIM}${text}${RESET}`);
 }
 
 export function url(text: string): void {
+  if (jsonMode) return;
   console.log(`  ${CYAN}${text}${RESET}`);
 }
 
 export function blank(): void {
+  if (jsonMode) return;
   console.log();
 }
 
@@ -46,6 +73,7 @@ export function table(
   rows: Array<Record<string, string>>,
   columns: string[]
 ): void {
+  if (jsonMode) return;
   if (rows.length === 0) return;
 
   const widths = columns.map((col) =>

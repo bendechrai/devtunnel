@@ -6,7 +6,8 @@ import type { DevtunnelConfig } from "../lib/types.js";
 
 export async function config(args: string[]): Promise<void> {
   const force = args.includes("--force");
-  const positional = args.filter((a) => a !== "--force");
+  const asJson = args.includes("--json");
+  const positional = args.filter((a) => a !== "--force" && a !== "--json");
   const [action, key, ...rest] = positional;
   const value = rest.join(" ");
 
@@ -14,13 +15,13 @@ export async function config(args: string[]): Promise<void> {
     case "set":
       return set(key, value, force);
     case "get":
-      return get(key);
+      return get(key, asJson);
     case "list":
     case undefined:
-      return list();
+      return list(asJson);
     default:
       throw new Error(
-        "Usage: devtun config [list|set <key> <value> [--force]|get <key>]"
+        "Usage: devtun config [list|set <key> <value> [--force]|get <key>] [--json]"
       );
   }
 }
@@ -204,12 +205,20 @@ function setTunnelName(cfg: DevtunnelConfig, newName: string): void {
   }
 }
 
-function get(key: string | undefined): void {
+function get(key: string | undefined, asJson: boolean): void {
   if (!key) {
-    throw new Error("Usage: devtun config get <key>");
+    throw new Error("Usage: devtun config get <key> [--json]");
+  }
+  if (key === "tunnelToken") {
+    throw new Error("tunnelToken is sensitive and cannot be read via `config get`.");
   }
   const cfg = loadConfig();
   const value = (cfg as unknown as Record<string, string | undefined>)[key];
+  if (asJson) {
+    out.setJsonMode(true);
+    out.json({ [key]: value ?? null });
+    return;
+  }
   if (value === undefined) {
     out.info(`${key}: (not set)`);
   } else {
@@ -217,11 +226,21 @@ function get(key: string | undefined): void {
   }
 }
 
-function list(): void {
+function list(asJson: boolean): void {
   if (!configExists()) {
     throw new Error('No config found. Run "devtun setup" first.');
   }
   const cfg = loadConfig();
+
+  if (asJson) {
+    out.setJsonMode(true);
+    // Never include tunnelToken in JSON output.
+    const { tunnelToken: _omit, ...safe } = cfg;
+    void _omit;
+    out.json(safe);
+    return;
+  }
+
   out.header("devtun config");
   out.info(`domain:        ${cfg.domain}`);
   out.info(`devSubdomain:  ${cfg.devSubdomain}`);
