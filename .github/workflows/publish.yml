@@ -35,6 +35,9 @@ jobs:
       - name: Type check
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       - name: Verify the integrity of provenance attestations and registry signatures for installed dependencies
         run: npm audit signatures
 
