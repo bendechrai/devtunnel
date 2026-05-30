@@ -26,6 +26,8 @@ Versions are published automatically by [semantic-release](https://github.com/se
 
 - `devtun doctor` command runs read-only health checks against your config, Cloudflare token, zone, tunnel, fallback origin, custom hostnames (with orphan detection for hostnames not on the current `devSubdomain`), and the local Docker stack. Use it as the first step when diagnosing routing or SSL issues.
 - `--force` flag on `devtun config set` to override safety checks when changing `domain` or `devSubdomain`.
+- `--restart`, `--no-restart`, and `--yes` (alias `-y`) flags on `devtun add` and `devtun remove`, so the commands can run unattended without prompting. Outside a TTY (piped input, CI, automation), the commands now default to not restarting containers, while the Cloudflare side is still updated. Inside a TTY, the existing prompt still appears unless a flag is passed.
+- New "Scripting and CI" section in the README documenting the non-interactive behaviour and flag semantics.
 
 ### Changed
 

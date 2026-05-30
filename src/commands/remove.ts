@@ -6,10 +6,19 @@ import { validateProjectName } from "../lib/validate.js";
 import { removeOverrideLabels } from "../lib/compose.js";
 import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
+import { parseFlags } from "../lib/flags.js";
 
-export async function remove(name?: string): Promise<void> {
+export async function remove(args: string[] = []): Promise<void> {
+  const { positional, flags } = parseFlags(args, {
+    boolean: ["yes", "restart"],
+    aliases: { y: "yes" },
+  });
+
+  const [name] = positional;
   if (!name) {
-    throw new Error("Usage: devtun remove <name>");
+    throw new Error(
+      "Usage: devtun remove <name> [--yes|--restart|--no-restart]"
+    );
   }
   validateProjectName(name);
 
@@ -38,7 +47,6 @@ export async function remove(name?: string): Promise<void> {
     out.info("DNS record removed.");
   }
 
-  // TXT verification record
   const txtRecord = await cf.findDnsRecord(
     zoneId,
     `_cf-custom-hostname.${hostname}`,
@@ -55,9 +63,7 @@ export async function remove(name?: string): Promise<void> {
   out.info("Cleaned docker-compose.override.yml");
   out.blank();
 
-  const shouldRestart = await confirm(
-    "Restart containers to apply changes? (docker compose up -d)"
-  );
+  const shouldRestart = await resolveRestart(flags);
   if (shouldRestart) {
     restartProject(projectDir);
   }
@@ -65,4 +71,14 @@ export async function remove(name?: string): Promise<void> {
   out.blank();
   out.success(`${hostname} removed.`);
   out.blank();
+}
+
+async function resolveRestart(
+  flags: Record<string, string | boolean>
+): Promise<boolean> {
+  if (typeof flags["restart"] === "boolean") return flags["restart"];
+  if (flags["yes"] === true) return true;
+  return confirm("Restart containers to apply changes? (docker compose up -d)", {
+    defaultWhenNonInteractive: false,
+  });
 }
