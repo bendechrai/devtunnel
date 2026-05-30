@@ -4,8 +4,38 @@ import { loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
 import { parseFlags } from "../lib/flags.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
+
+const statusHelp: HelpDoc = {
+  command: "status",
+  synopsis: "devtun status [name] [--json] [--help]",
+  description:
+    "Show the status of a specific project hostname, or (with no name) the overall infrastructure status\nincluding the zone, tunnel, fallback origin, and total registered projects.",
+  args: [
+    { name: "name", description: "Optional project name. Omit to see infrastructure status." },
+  ],
+  flags: [
+    {
+      name: "json",
+      description:
+        "Emit JSON. Without name: { domain, devSubdomain, tunnel, zoneId, accountId, fallback, projects }. With name: { hostname, registered, status, ssl, createdAt, ownershipVerification? } or { hostname, registered: false } with exit 1.",
+    },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [{ name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token." }],
+  exits: [
+    { code: 0, meaning: "Success" },
+    { code: 1, meaning: "Hostname not registered (when name given) or API error" },
+  ],
+  examples: [
+    { description: "Infrastructure status", command: "devtun status" },
+    { description: "Status for myapp", command: "devtun status myapp" },
+    { description: "JSON of one project", command: "devtun status myapp --json | jq" },
+  ],
+};
 
 export async function status(args: string[] = []): Promise<void> {
+  if (handleHelp(args, statusHelp)) return;
   const { positional, flags } = parseFlags(args, { boolean: ["json"] });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);

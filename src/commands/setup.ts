@@ -4,10 +4,53 @@ import { configExists, loadConfig, saveConfig, writeEnvFile } from "../lib/confi
 import { writeInfraCompose } from "../lib/compose.js";
 import { resolveToken } from "../lib/token.js";
 import { isDockerRunning, composeUp } from "../lib/docker.js";
-import { ask, confirm, waitForEnter } from "../lib/prompt.js";
+import { ask, confirm, isInteractive, waitForEnter } from "../lib/prompt.js";
+import { parseFlags } from "../lib/flags.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
 import type { DevtunnelConfig } from "../lib/types.js";
 
-export async function setup(): Promise<void> {
+const setupHelp: HelpDoc = {
+  command: "setup",
+  synopsis:
+    "devtun setup [--domain=<zone>] [--dev-subdomain=<sub>] [--tunnel-name=<name>]\n              [--cf-token-source=<source>] [--yes] [--help]",
+  description:
+    "One-time infrastructure setup. Idempotent: re-run safely after fixing an issue. Walks through:\nconfig, Docker check, Cloudflare zone, tunnel, SSL settings, Cloudflare for SaaS + fallback origin,\nthen starts the local Traefik + cloudflared stack.\n\nIf ~/.devtun/config.json doesn't exist yet, values come from flags > env vars > interactive prompts.\nIn a non-TTY context (CI, automation), all four values must be provided via flags or env.\nIf Cloudflare for SaaS needs to be enabled in the dashboard, the command pauses (TTY) or exits\nwith code 2 (non-TTY) with the dashboard URL.",
+  flags: [
+    { name: "domain", type: "string", description: "Root domain (matches a Cloudflare zone on your account)." },
+    { name: "dev-subdomain", type: "string", description: "Wildcard subdomain for projects, e.g. dev.example.com." },
+    { name: "tunnel-name", type: "string", description: "Cloudflare Tunnel name. Defaults to dev-<dashified-domain>." },
+    { name: "cf-token-source", type: "string", description: "1Password reference (op://...) or literal token. Stored in config." },
+    { name: "yes", aliases: ["y"], description: "Auto-confirm destructive prompts (e.g., recreating a locally-managed tunnel)." },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [
+    { name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token. Takes precedence over cfTokenSource." },
+    { name: "DEVTUN_DOMAIN", description: "Same as --domain. Used when --domain isn't passed." },
+    { name: "DEVTUN_DEV_SUBDOMAIN", description: "Same as --dev-subdomain." },
+    { name: "DEVTUN_TUNNEL_NAME", description: "Same as --tunnel-name." },
+  ],
+  exits: [
+    { code: 0, meaning: "Setup completed (stack up)" },
+    { code: 1, meaning: "Configuration error, Docker missing, or Cloudflare API failure" },
+    { code: 2, meaning: "Cloudflare for SaaS needs to be enabled manually in the dashboard (non-TTY only)" },
+  ],
+  examples: [
+    { description: "First-time interactive setup", command: "devtun setup" },
+    { description: "Unattended setup with all values", command: "CLOUDFLARE_API_TOKEN=... devtun setup --domain example.com --dev-subdomain dev.example.com --yes" },
+    { description: "Re-run after fixing an issue (idempotent)", command: "devtun setup" },
+  ],
+};
+
+export async function setup(args: string[] = []): Promise<void> {
+  if (handleHelp(args, setupHelp)) return;
+
+  const { flags } = parseFlags(args, {
+    string: ["domain", "dev-subdomain", "tunnel-name", "cf-token-source"],
+    boolean: ["yes"],
+    aliases: { y: "yes" },
+  });
+  const autoYes = flags["yes"] === true;
+
   out.header("devtun setup");
 
   // --- Step 1: Config ---
@@ -24,10 +67,37 @@ export async function setup(): Promise<void> {
     out.info("No config found. Let's set one up.");
     out.blank();
 
-    const domain = await ask("Root domain (Cloudflare zone): ");
-    const devSubdomain = await ask(`Dev subdomain [dev.${domain}]: `) || `dev.${domain}`;
-    const tunnelName = await ask(`Tunnel name [dev-${domain.replace(/\./g, "-")}]: `) || `dev-${domain.replace(/\./g, "-")}`;
-    const cfTokenSource = await ask("Cloudflare API token (or op:// reference, or leave empty for env var): ");
+    const domain = await resolveValue(
+      "domain",
+      flags["domain"],
+      process.env["DEVTUN_DOMAIN"],
+      "Root domain (Cloudflare zone): "
+    );
+    const defaultDev = `dev.${domain}`;
+    const devSubdomain =
+      (await resolveValue(
+        "dev-subdomain",
+        flags["dev-subdomain"],
+        process.env["DEVTUN_DEV_SUBDOMAIN"],
+        `Dev subdomain [${defaultDev}]: `,
+        { defaultValue: defaultDev }
+      )) || defaultDev;
+    const defaultTunnel = `dev-${domain.replace(/\./g, "-")}`;
+    const tunnelName =
+      (await resolveValue(
+        "tunnel-name",
+        flags["tunnel-name"],
+        process.env["DEVTUN_TUNNEL_NAME"],
+        `Tunnel name [${defaultTunnel}]: `,
+        { defaultValue: defaultTunnel }
+      )) || defaultTunnel;
+    const cfTokenSource = await resolveValue(
+      "cf-token-source",
+      flags["cf-token-source"],
+      undefined,
+      "Cloudflare API token (or op:// reference, or leave empty for env var): ",
+      { defaultValue: "" }
+    );
 
     config = { domain, devSubdomain, tunnelName };
     if (cfTokenSource) config.cfTokenSource = cfTokenSource;
@@ -96,9 +166,12 @@ export async function setup(): Promise<void> {
     out.info("  3. Run devtun setup again to create a new remotely-managed tunnel");
     out.blank();
 
-    const shouldRecreate = await confirm(
-      "Or: delete the existing tunnel and create a new one now?"
-    );
+    const shouldRecreate = autoYes
+      ? true
+      : await confirm(
+          "Or: delete the existing tunnel and create a new one now?",
+          { defaultWhenNonInteractive: false }
+        );
     if (!shouldRecreate) {
       process.exit(1);
     }
@@ -164,6 +237,16 @@ export async function setup(): Promise<void> {
     out.url(
       `https://dash.cloudflare.com/${accountId}/${config.domain}/ssl-tls/custom-hostnames`
     );
+
+    if (!isInteractive()) {
+      out.blank();
+      out.error(
+        "Cannot wait for manual dashboard step in a non-interactive context."
+      );
+      out.info("Enable Cloudflare for SaaS in the dashboard, then re-run `devtun setup`.");
+      process.exit(2);
+    }
+
     await waitForEnter("");
 
     const retryEnabled = await cf.isSaasEnabled(zoneId);
@@ -232,4 +315,35 @@ export async function setup(): Promise<void> {
   out.blank();
   out.info("Traefik dashboard: http://localhost:8080");
   out.blank();
+}
+
+interface ResolveValueOpts {
+  defaultValue?: string;
+}
+
+/**
+ * Resolve a value from flag > env > prompt (if TTY) > default (if any).
+ * Throws in a non-TTY context when no value source is available, naming the
+ * flag and env var the user should set.
+ */
+async function resolveValue(
+  flagName: string,
+  flagValue: string | boolean | undefined,
+  envValue: string | undefined,
+  promptText: string,
+  opts: ResolveValueOpts = {}
+): Promise<string> {
+  if (typeof flagValue === "string" && flagValue) return flagValue;
+  if (envValue) return envValue;
+  if (isInteractive()) {
+    const answer = await ask(promptText);
+    if (answer) return answer;
+    if (opts.defaultValue !== undefined) return opts.defaultValue;
+  }
+  if (opts.defaultValue !== undefined) return opts.defaultValue;
+  const envName = `DEVTUN_${flagName.replace(/-/g, "_").toUpperCase()}`;
+  throw new Error(
+    `Missing required value '${flagName}' in non-interactive mode. ` +
+    `Pass --${flagName}=<value> or set ${envName}.`
+  );
 }

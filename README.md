@@ -173,6 +173,37 @@ Example: gate a deploy on all checks passing:
 devtun doctor --json | jq -e '.summary.fail == 0 and .summary.warn == 0' >/dev/null
 ```
 
+#### Per-command help
+
+Every command supports `--help` (or `-h`) and prints a man-style page with synopsis, arguments, flags, environment variables, exit codes, and worked examples:
+
+```bash
+devtun add --help              # human-readable help
+devtun add --json --help       # the same help as a JSON document (for tools)
+```
+
+#### Unattended setup
+
+`devtun setup` accepts all initial values via flags or env vars, so it can run without prompts:
+
+```bash
+CLOUDFLARE_API_TOKEN=... devtun setup \
+  --domain example.com \
+  --dev-subdomain dev.example.com \
+  --tunnel-name dev-example-com \
+  --yes
+```
+
+| Flag | Env var | Default |
+| ---- | ------- | ------- |
+| `--domain` | `DEVTUN_DOMAIN` | (required) |
+| `--dev-subdomain` | `DEVTUN_DEV_SUBDOMAIN` | `dev.<domain>` |
+| `--tunnel-name` | `DEVTUN_TUNNEL_NAME` | `dev-<dashified-domain>` |
+| `--cf-token-source` | (use `CLOUDFLARE_API_TOKEN` instead) | (none) |
+| `--yes` / `-y` | | confirms destructive prompts (e.g. recreating a locally-managed tunnel) |
+
+If Cloudflare for SaaS isn't yet enabled in the dashboard, setup will exit with code 2 and the dashboard URL in stderr (non-TTY) or pause for you to enable it (TTY).
+
 ### Changing your domain or subdomain
 
 If you need to move all your projects to a new domain or subdomain, the order matters: `devtun remove` uses the *current* config to know which Cloudflare zone to clean up.

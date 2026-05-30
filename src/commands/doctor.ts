@@ -4,7 +4,31 @@ import { configExists, loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { isDockerRunning, isStackRunning } from "../lib/docker.js";
 import { parseFlags } from "../lib/flags.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
 import type { DevtunnelConfig } from "../lib/types.js";
+
+const doctorHelp: HelpDoc = {
+  command: "doctor",
+  synopsis: "devtun doctor [--json] [--help]",
+  description:
+    "Run a read-only health check across config, Cloudflare API access, tunnel, SaaS state, fallback origin,\ncustom hostnames (with orphan detection), and the local Docker stack. First step for any troubleshooting.",
+  flags: [
+    {
+      name: "json",
+      description: "Emit { summary: {ok, warn, fail, skip}, checks: [{name, status, detail}] }.",
+    },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [{ name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token." }],
+  exits: [
+    { code: 0, meaning: "All checks ok or only warnings" },
+    { code: 1, meaning: "One or more checks failed" },
+  ],
+  examples: [
+    { description: "Human-readable health report", command: "devtun doctor" },
+    { description: "Gate a deploy on clean state", command: "devtun doctor --json | jq -e '.summary.fail == 0' >/dev/null" },
+  ],
+};
 
 type CheckResult = "ok" | "warn" | "fail" | "skip";
 
@@ -68,6 +92,8 @@ function finish(checks: Check[], tally: Tally, asJson: boolean): void {
 }
 
 export async function doctor(args: string[] = []): Promise<void> {
+  if (handleHelp(args, doctorHelp)) return;
+
   const { flags } = parseFlags(args, { boolean: ["json"] });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);

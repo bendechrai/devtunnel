@@ -2,9 +2,39 @@ import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
 import { loadConfig, saveConfig, configExists } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
 import type { DevtunnelConfig } from "../lib/types.js";
 
+const configHelp: HelpDoc = {
+  command: "config",
+  synopsis:
+    "devtun config [list] [--json]\n  devtun config get <key> [--json]\n  devtun config set <key> <value> [--force]",
+  description:
+    "Show or modify ~/.devtun/config.json. `set` validates against Cloudflare for destructive changes:\nchanging `domain` verifies the token can access the new zone and refuses if hostnames remain on the old\nzone (unless --force); changing `devSubdomain` refuses if hostnames are still on the old subdomain;\nchanging `tunnelName` clears the cached tunnelId/tunnelToken. tunnelToken is never exposed.",
+  args: [
+    { name: "key", description: "domain | devSubdomain | tunnelName | cfTokenSource" },
+    { name: "value", description: "(set only) New value for the key" },
+  ],
+  flags: [
+    { name: "json", description: "Emit JSON. For `list`, the config object minus tunnelToken. For `get`, { [key]: value }." },
+    { name: "force", description: "(set only) Skip the orphan-hostname safety check." },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [{ name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token, used by `set domain` to validate access to the new zone." }],
+  exits: [
+    { code: 0, meaning: "Success" },
+    { code: 1, meaning: "Invalid key, unsafe change without --force, or Cloudflare API failure" },
+  ],
+  examples: [
+    { description: "Show current config", command: "devtun config" },
+    { description: "Get a single value", command: "devtun config get domain" },
+    { description: "JSON for scripting", command: "devtun config --json | jq .domain" },
+    { description: "Change domain (refuses if hostnames still on old zone)", command: "devtun config set domain new.example.com" },
+  ],
+};
+
 export async function config(args: string[]): Promise<void> {
+  if (handleHelp(args, configHelp)) return;
   const force = args.includes("--force");
   const asJson = args.includes("--json");
   const positional = args.filter((a) => a !== "--force" && a !== "--json");
