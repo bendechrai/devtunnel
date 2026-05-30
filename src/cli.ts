@@ -28,7 +28,9 @@ Setup:
 
 Projects:
   add <name> <svc> <port>  Register <name> routing to <svc> on <port>
+                           Flags: --restart | --no-restart | --yes (-y)
   remove <name>         Remove a project hostname
+                           Flags: --restart | --no-restart | --yes (-y)
   list                  List all registered projects
   status [name]         Show project or infrastructure status
 
@@ -53,10 +55,10 @@ async function main(): Promise<void> {
       return setup();
     case "init":
     case "add":
-      return add(args[0], args[1], args[2]);
+      return add(args);
     case "remove":
     case "rm":
-      return remove(args[0]);
+      return remove(args);
     case "list":
     case "ls":
       return list();

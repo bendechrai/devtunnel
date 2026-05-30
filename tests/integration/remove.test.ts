@@ -59,14 +59,14 @@ describe("remove command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await add("myapp", "web", "3000");
+    await add(["myapp", "web", "3000"]);
 
     expect([...zone.dnsRecords.values()]).toHaveLength(1);
     expect([...zone.customHostnames.values()]).toHaveLength(1);
     expect(existsSync(join(projectDir.path, "docker-compose.override.yml"))).toBe(true);
 
     const { remove } = await import("../../src/commands/remove.js");
-    await remove("myapp");
+    await remove(["myapp"]);
 
     expect([...zone.dnsRecords.values()]).toHaveLength(0);
     expect([...zone.customHostnames.values()]).toHaveLength(0);
@@ -101,7 +101,7 @@ describe("remove command (integration)", () => {
     });
 
     const { remove } = await import("../../src/commands/remove.js");
-    await remove("myapp");
+    await remove(["myapp"]);
 
     expect([...zone.dnsRecords.values()]).toHaveLength(0);
     expect([...zone.customHostnames.values()]).toHaveLength(0);
@@ -118,11 +118,11 @@ describe("remove command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await add("myapp", "web", "3000");
-    await add("myapp-mail", "mail", "8025");
+    await add(["myapp", "web", "3000"]);
+    await add(["myapp-mail", "mail", "8025"]);
 
     const { remove } = await import("../../src/commands/remove.js");
-    await remove("myapp");
+    await remove(["myapp"]);
 
     const remaining = [...zone.customHostnames.values()];
     expect(remaining).toHaveLength(1);
@@ -146,7 +146,7 @@ describe("remove command (integration)", () => {
     });
 
     const { remove } = await import("../../src/commands/remove.js");
-    await expect(remove("myapp")).resolves.not.toThrow();
+    await expect(remove(["myapp"])).resolves.not.toThrow();
   });
 
   it("requires a project name", async () => {
@@ -157,6 +157,6 @@ describe("remove command (integration)", () => {
     });
 
     const { remove } = await import("../../src/commands/remove.js");
-    await expect(remove()).rejects.toThrow(/Usage/);
+    await expect(remove([])).rejects.toThrow(/Usage/);
   });
 });
