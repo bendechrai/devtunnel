@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "setup":
-      return setup();
+      return setup(args);
     case "init":
     case "add":
       return add(args);
@@ -66,14 +66,14 @@ async function main(): Promise<void> {
       return status(args);
     case "up":
     case "start":
-      return up();
+      return up(args);
     case "down":
     case "stop":
-      return down();
+      return down(args);
     case "config":
       return config(args);
     case "autostart":
-      return autostart(args[0]);
+      return autostart(args);
     case "doctor":
       return doctor(args);
     case "version":

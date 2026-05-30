@@ -15,7 +15,9 @@ Versions are published automatically by [semantic-release](https://github.com/se
 - `--force` flag on `devtun config set` to override safety checks when changing `domain` or `devSubdomain`.
 - `--restart`, `--no-restart`, and `--yes` (alias `-y`) flags on `devtun add` and `devtun remove`, so the commands can run unattended without prompting. Outside a TTY (piped input, CI, automation), the commands now default to not restarting containers, while the Cloudflare side is still updated. Inside a TTY, the existing prompt still appears unless a flag is passed.
 - `--json` flag on `devtun list`, `devtun status` (both forms), `devtun doctor`, `devtun config`, and `devtun config get`. Emits a single JSON document on stdout, designed for piping into `jq`. Exit codes are unchanged. `tunnelToken` is never included in JSON output; `devtun config get tunnelToken` is rejected.
-- New "Scripting and CI" section in the README documenting the non-interactive behaviour, flag semantics, and JSON output shapes.
+- `--help` (alias `-h`) on every command. Prints a man-style page with synopsis, arguments, flags, environment variables, exit codes, and worked examples. `--json --help` returns the help document as JSON so tooling can introspect available flags.
+- `devtun setup` accepts all initial values via flags (`--domain`, `--dev-subdomain`, `--tunnel-name`, `--cf-token-source`) or env vars (`DEVTUN_DOMAIN`, `DEVTUN_DEV_SUBDOMAIN`, `DEVTUN_TUNNEL_NAME`). `--yes` auto-confirms destructive prompts. In a non-TTY context with missing required values, setup fails with a clear "pass --foo or set DEVTUN_FOO" message instead of hanging. When Cloudflare for SaaS needs to be enabled in the dashboard, setup exits with code 2 and prints the dashboard URL.
+- New "Scripting and CI" section in the README documenting the non-interactive behaviour, flag semantics, JSON output shapes, per-command help, and the unattended setup flow.
 
 ### Changed
 

@@ -7,8 +7,40 @@ import { addOverrideLabels } from "../lib/compose.js";
 import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
 import { parseFlags } from "../lib/flags.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
+
+const addHelp: HelpDoc = {
+  command: "add",
+  synopsis: "devtun add <name> <service> <port> [--restart|--no-restart|--yes] [--help]",
+  description:
+    "Register a project hostname. Creates a Cloudflare DNS record + custom hostname (with edge SSL cert),\nand writes Traefik routing labels into the project's docker-compose.override.yml.\nRun from the project directory.",
+  args: [
+    { name: "name", required: true, description: "Project name. Becomes the subdomain: <name>.<devSubdomain>. Lowercase letters, digits, hyphens; max 63 chars." },
+    { name: "service", required: true, description: "Service name in the project's docker-compose to route to." },
+    { name: "port", required: true, description: "Port the service listens on inside the container." },
+  ],
+  flags: [
+    { name: "restart", description: "Run `docker compose up -d` after writing the override file. Never prompts." },
+    { name: "no-restart", description: "Skip the container restart. Never prompts." },
+    { name: "yes", aliases: ["y"], description: "Equivalent to --restart." },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [
+    { name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token with Zone Settings:Edit, SSL:Edit, DNS:Edit on the target zone." },
+  ],
+  exits: [
+    { code: 0, meaning: "Hostname registered and override file written" },
+    { code: 1, meaning: "Validation error, config missing, or Cloudflare API failure" },
+  ],
+  examples: [
+    { description: "Register myapp routing to the web service on port 3000", command: "devtun add myapp web 3000" },
+    { description: "Same, but restart containers automatically (CI-friendly)", command: "devtun add myapp web 3000 --restart" },
+    { description: "Same, but explicitly skip the restart (CI-friendly)", command: "devtun add myapp web 3000 --no-restart" },
+  ],
+};
 
 export async function add(args: string[] = []): Promise<void> {
+  if (handleHelp(args, addHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
     aliases: { y: "yes" },
