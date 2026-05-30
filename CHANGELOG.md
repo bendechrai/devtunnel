@@ -1,3 +1,12 @@
+# [1.2.0](https://github.com/bendechrai/devtunnel/compare/v1.1.0...v1.2.0) (2026-05-30)
+
+
+### Features
+
+* --json output mode on list, status, doctor, and config ([0cc104a](https://github.com/bendechrai/devtunnel/commit/0cc104a8aadddbda80536630e2492980e756829c))
+* non-interactive flags for add and remove with TTY detection ([fe10f8c](https://github.com/bendechrai/devtunnel/commit/fe10f8c5fdfe7c7e1940779a802ff1ac829edb7a))
+* per-command --help and non-interactive setup via flags and env ([df63c39](https://github.com/bendechrai/devtunnel/commit/df63c39c91d57af7623e844761ee127a6951e450))
+
 # [1.1.0](https://github.com/bendechrai/devtunnel/compare/v1.0.1...v1.1.0) (2026-05-30)
 
 
