@@ -111,9 +111,11 @@ SSL typically activates within seconds.
 
 ```bash
 devtun add <name> <svc> <port>  # Register hostname routing to service on port
+                                #   Flags: --restart | --no-restart | --yes (-y)
 devtun list              # List all registered project hostnames
 devtun status <name>     # Check SSL and routing status
 devtun remove <name>     # Remove hostname, DNS record, and labels
+                         #   Flags: --restart | --no-restart | --yes (-y)
 ```
 
 ### Infrastructure
@@ -132,6 +134,25 @@ devtun config            # Show current configuration
 devtun config set <k> <v>  # Update a config value
 devtun config get <key>  # Get a config value
 ```
+
+### Scripting and CI
+
+`devtun` is designed to run unattended. When stdin or stdout is not a TTY (e.g., piped, in a CI job, or invoked from an automation tool), it never prompts.
+
+**`add` and `remove`** ask "restart containers?" at the end. In a non-TTY context they default to **not restarting** (safe default — the Cloudflare side is still updated). Use flags to be explicit:
+
+```bash
+devtun add myapp web 3000 --restart      # always restart, never prompt
+devtun add myapp web 3000 --no-restart   # never restart, never prompt
+devtun add myapp web 3000 --yes          # alias for --restart
+devtun add myapp web 3000 -y             # short alias for --yes
+```
+
+`remove` accepts the same flags.
+
+In a TTY, the existing interactive prompt still appears unless you pass one of the flags above.
+
+The Cloudflare API token can come from the `CLOUDFLARE_API_TOKEN` environment variable, a `cfTokenSource` set to a 1Password `op://` reference, or a literal value in config. For CI, env var is the simplest.
 
 ### Changing your domain or subdomain
 

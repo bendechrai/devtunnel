@@ -6,14 +6,19 @@ import { validateProjectName } from "../lib/validate.js";
 import { addOverrideLabels } from "../lib/compose.js";
 import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
+import { parseFlags } from "../lib/flags.js";
 
-export async function add(
-  name?: string,
-  service?: string,
-  portArg?: string
-): Promise<void> {
+export async function add(args: string[] = []): Promise<void> {
+  const { positional, flags } = parseFlags(args, {
+    boolean: ["yes", "restart"],
+    aliases: { y: "yes" },
+  });
+
+  const [name, service, portArg] = positional;
   if (!name || !service || !portArg) {
-    throw new Error("Usage: devtun add <name> <service> <port>");
+    throw new Error(
+      "Usage: devtun add <name> <service> <port> [--yes|--restart|--no-restart]"
+    );
   }
   validateProjectName(name);
 
@@ -40,7 +45,6 @@ export async function add(
     out.info(`Custom hostname already registered (${existingCh.status})`);
     out.info(`SSL: ${existingCh.ssl.status}`);
   } else {
-    // DNS record
     const dnsRecord = await cf.findDnsRecord(zoneId, hostname, "CNAME");
     if (dnsRecord) {
       out.info("DNS record exists.");
@@ -54,12 +58,10 @@ export async function add(
       });
     }
 
-    // Custom hostname
     out.info("Registering custom hostname with SSL...");
     const ch = await cf.createCustomHostname(zoneId, hostname);
     out.success(`Registered (SSL: ${ch.ssl.status})`);
 
-    // Ownership verification TXT record
     if (ch.ownership_verification?.type === "txt") {
       out.info("Adding ownership verification TXT record...");
       try {
@@ -83,7 +85,6 @@ export async function add(
   out.step(2, "Docker Compose override...");
 
   const projectDir = process.cwd();
-
   addOverrideLabels({
     projectDir,
     serviceName: service,
@@ -94,10 +95,9 @@ export async function add(
   out.success(`Updated docker-compose.override.yml (${service}:${port})`);
   out.blank();
 
-  // --- Offer to restart ---
-  const shouldRestart = await confirm(
-    "Restart containers to apply changes? (docker compose up -d)"
-  );
+  // --- Restart decision ---
+  const shouldRestart = await resolveRestart(flags);
+
   if (shouldRestart) {
     restartProject(projectDir);
   } else {
@@ -109,4 +109,14 @@ export async function add(
   out.success(`https://${hostname}/ will be live once SSL activates.`);
   out.info("Check status with: devtun status " + name);
   out.blank();
+}
+
+async function resolveRestart(
+  flags: Record<string, string | boolean>
+): Promise<boolean> {
+  if (typeof flags["restart"] === "boolean") return flags["restart"];
+  if (flags["yes"] === true) return true;
+  return confirm("Restart containers to apply changes? (docker compose up -d)", {
+    defaultWhenNonInteractive: false,
+  });
 }

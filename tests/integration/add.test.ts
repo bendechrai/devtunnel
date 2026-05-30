@@ -59,7 +59,7 @@ describe("add command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await add("myapp", "web", "3000");
+    await add(["myapp", "web", "3000"]);
 
     // Cloudflare side
     const dns = [...zone.dnsRecords.values()];
@@ -109,7 +109,7 @@ describe("add command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await add("myapp", "web", "3000");
+    await add(["myapp", "web", "3000"]);
 
     const dns = [...zone.dnsRecords.values()];
     expect(dns).toHaveLength(1);
@@ -127,7 +127,7 @@ describe("add command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await expect(add("My_App", "web", "3000")).rejects.toThrow(/Invalid project name/);
+    await expect(add(["My_App", "web", "3000"])).rejects.toThrow(/Invalid project name/);
     // No CF or filesystem side effects
     expect([...zone.dnsRecords.values()]).toHaveLength(0);
     expect(existsSync(join(projectDir.path, "docker-compose.override.yml"))).toBe(false);
@@ -144,7 +144,7 @@ describe("add command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await expect(add("myapp", "web", "99999")).rejects.toThrow(/Invalid port/);
+    await expect(add(["myapp", "web", "99999"])).rejects.toThrow(/Invalid port/);
   });
 
   it("requires all three arguments", async () => {
@@ -155,8 +155,8 @@ describe("add command (integration)", () => {
     });
 
     const { add } = await import("../../src/commands/add.js");
-    await expect(add()).rejects.toThrow(/Usage/);
-    await expect(add("myapp")).rejects.toThrow(/Usage/);
-    await expect(add("myapp", "web")).rejects.toThrow(/Usage/);
+    await expect(add([])).rejects.toThrow(/Usage/);
+    await expect(add(["myapp"])).rejects.toThrow(/Usage/);
+    await expect(add(["myapp", "web"])).rejects.toThrow(/Usage/);
   });
 });
