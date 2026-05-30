@@ -1,9 +1,34 @@
-import { writeFileSync, unlinkSync, existsSync, readFileSync } from "fs";
+import { writeFileSync, unlinkSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import * as out from "../lib/output.js";
 import { loadConfig, configDir } from "../lib/config.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
+
+const autostartHelp: HelpDoc = {
+  command: "autostart",
+  synopsis: "devtun autostart <enable|disable|status> [--help]",
+  description:
+    "Manage devtun's start-on-boot configuration. macOS installs a LaunchAgent at\n~/Library/LaunchAgents/com.devtun.plist; Linux installs a user systemd unit at\n~/.config/systemd/user/devtun.service.",
+  args: [
+    {
+      name: "action",
+      required: true,
+      description: "One of: enable, disable, status.",
+    },
+  ],
+  flags: [{ name: "help", aliases: ["h"], description: "Show this help" }],
+  exits: [
+    { code: 0, meaning: "Action completed" },
+    { code: 1, meaning: "Bad action, unsupported platform, or system error" },
+  ],
+  examples: [
+    { description: "Start devtun on login", command: "devtun autostart enable" },
+    { description: "Stop starting on login", command: "devtun autostart disable" },
+    { description: "Check current state", command: "devtun autostart status" },
+  ],
+};
 
 function dockerPath(): string {
   try {
@@ -69,7 +94,7 @@ WantedBy=default.target
 }
 
 function enable(): void {
-  loadConfig(); // validate setup
+  loadConfig();
 
   if (process.platform === "darwin") {
     const plistPath = launchAgentPath();
@@ -138,9 +163,10 @@ function showStatus(): void {
   }
 }
 
-export async function autostart(
-  action?: string
-): Promise<void> {
+export async function autostart(args: string[] = []): Promise<void> {
+  if (handleHelp(args, autostartHelp)) return;
+
+  const action = args[0];
   switch (action) {
     case "enable":
       enable();

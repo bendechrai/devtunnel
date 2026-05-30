@@ -4,8 +4,37 @@ import { loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { readOverrideMappings } from "../lib/compose.js";
 import { parseFlags } from "../lib/flags.js";
+import { handleHelp, type HelpDoc } from "../lib/help.js";
+
+const listHelp: HelpDoc = {
+  command: "list",
+  synopsis: "devtun list [--json] [--help]",
+  description:
+    "List all hostnames registered on the current Cloudflare zone. When run from a project directory,\nthe `service` column shows the local Traefik mapping (service:port) for hostnames whose router\nname matches the local override file.",
+  flags: [
+    {
+      name: "json",
+      description:
+        "Emit an array of { hostname, service, port, status, ssl }. service and port are null when no local mapping is found.",
+    },
+    { name: "help", aliases: ["h"], description: "Show this help" },
+  ],
+  env: [
+    { name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token." },
+  ],
+  exits: [
+    { code: 0, meaning: "Success" },
+    { code: 1, meaning: "Config missing or Cloudflare API failure" },
+  ],
+  examples: [
+    { description: "List all projects (human format)", command: "devtun list" },
+    { description: "List as JSON for scripting", command: "devtun list --json" },
+    { description: "Just the hostnames", command: "devtun list --json | jq -r '.[].hostname'" },
+  ],
+};
 
 export async function list(args: string[] = []): Promise<void> {
+  if (handleHelp(args, listHelp)) return;
   const { flags } = parseFlags(args, { boolean: ["json"] });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);
