@@ -228,10 +228,11 @@ export function removeOverrideLabels(
       labels.delete(key);
     }
 
-    // If no traefik labels remain, remove traefik.enable too
-    const remainingTraefik = labels.items.some((l) =>
-      String(l.key).startsWith("traefik.")
-    );
+    // If no traefik labels OTHER than traefik.enable remain, remove enable too
+    const remainingTraefik = labels.items.some((l) => {
+      const key = String(l.key);
+      return key.startsWith("traefik.") && key !== "traefik.enable";
+    });
     if (!remainingTraefik) {
       labels.delete("traefik.enable");
     }
@@ -251,6 +252,20 @@ export function removeOverrideLabels(
           service.delete("networks");
         } else {
           service.set("networks", nets);
+        }
+      }
+    }
+
+    // If the only thing left on the service is the "default" network entry
+    // that addOverrideLabels adds when creating a fresh service, that's ours
+    // too - drop it so the service entry can be removed cleanly.
+    if (service instanceof YAMLMap && service.items.length === 1) {
+      const onlyItem = service.items[0];
+      if (String(onlyItem.key) === "networks") {
+        const json = service.toJSON();
+        const nets = json?.networks;
+        if (Array.isArray(nets) && nets.length === 1 && nets[0] === "default") {
+          service.delete("networks");
         }
       }
     }
