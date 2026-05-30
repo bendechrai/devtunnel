@@ -3,14 +3,40 @@ import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { readOverrideMappings } from "../lib/compose.js";
+import { parseFlags } from "../lib/flags.js";
 
-export async function list(): Promise<void> {
+export async function list(args: string[] = []): Promise<void> {
+  const { flags } = parseFlags(args, { boolean: ["json"] });
+  const asJson = flags["json"] === true;
+  if (asJson) out.setJsonMode(true);
+
   const config = loadConfig();
   const token = resolveToken(config);
   cf.setToken(token);
 
   const zoneId = config.zoneId!;
   const hostnames = await cf.listCustomHostnames(zoneId);
+
+  const mappings = readOverrideMappings(process.cwd());
+  const mappingByHostname = new Map(
+    mappings.map((m) => [`${m.routerName}.${config.devSubdomain}`, m])
+  );
+
+  if (asJson) {
+    out.json(
+      hostnames.map((h) => {
+        const mapping = mappingByHostname.get(h.hostname);
+        return {
+          hostname: h.hostname,
+          service: mapping?.serviceName ?? null,
+          port: mapping?.port ?? null,
+          status: h.status,
+          ssl: h.ssl.status,
+        };
+      })
+    );
+    return;
+  }
 
   out.header("Registered projects");
 
@@ -21,12 +47,6 @@ export async function list(): Promise<void> {
     out.blank();
     return;
   }
-
-  // Build a lookup from router name to local override mapping
-  const mappings = readOverrideMappings(process.cwd());
-  const mappingByHostname = new Map(
-    mappings.map((m) => [`${m.routerName}.${config.devSubdomain}`, m])
-  );
 
   out.table(
     hostnames.map((h) => {

@@ -154,6 +154,25 @@ In a TTY, the existing interactive prompt still appears unless you pass one of t
 
 The Cloudflare API token can come from the `CLOUDFLARE_API_TOKEN` environment variable, a `cfTokenSource` set to a 1Password `op://` reference, or a literal value in config. For CI, env var is the simplest.
 
+#### Structured output (`--json`)
+
+`list`, `status`, `doctor`, and `config` accept `--json`. The output is a single JSON document on stdout suitable for piping into `jq`. Errors still go to stderr; exit codes are unchanged (`doctor` exits 1 on any failure, `status <name>` exits 1 if the hostname isn't registered, etc.). `tunnelToken` is never included in JSON output.
+
+```bash
+devtun list --json                  # array of { hostname, service, port, status, ssl }
+devtun status --json                # infra: { domain, devSubdomain, tunnel, zoneId, fallback, projects }
+devtun status myapp --json          # one project: { hostname, registered, status, ssl, createdAt, ... }
+devtun doctor --json                # { summary: {ok, warn, fail, skip}, checks: [{name, status, detail}] }
+devtun config --json                # the config object minus tunnelToken
+devtun config get domain --json     # { domain: "example.com" }
+```
+
+Example: gate a deploy on all checks passing:
+
+```bash
+devtun doctor --json | jq -e '.summary.fail == 0 and .summary.warn == 0' >/dev/null
+```
+
 ### Changing your domain or subdomain
 
 If you need to move all your projects to a new domain or subdomain, the order matters: `devtun remove` uses the *current* config to know which Cloudflare zone to clean up.
