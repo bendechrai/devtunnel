@@ -1,3 +1,16 @@
+# [1.1.0](https://github.com/bendechrai/devtunnel/compare/v1.0.1...v1.1.0) (2026-05-30)
+
+
+### Bug Fixes
+
+* clean up traefik.enable and default network on devtun remove ([fcaf5e6](https://github.com/bendechrai/devtunnel/commit/fcaf5e6ab7859dad69f843f09583c87d338d49e3))
+
+
+### Features
+
+* add doctor command for diagnosing config and Cloudflare drift ([ff6bac7](https://github.com/bendechrai/devtunnel/commit/ff6bac731c8bf21ca28e83030d87a75a211c7dc7))
+* validate domain/subdomain changes and clear stale derived state ([9f49ee5](https://github.com/bendechrai/devtunnel/commit/9f49ee5fab4868ca060d7dce89e152479c9538d9))
+
 # Changelog
 
 All notable changes to this project are documented in this file.
