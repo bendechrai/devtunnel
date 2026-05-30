@@ -3,6 +3,10 @@ import type { DevtunnelConfig } from "./types.js";
 
 let cachedToken: string | null = null;
 
+export function resetTokenCache(): void {
+  cachedToken = null;
+}
+
 export function resolveToken(config?: DevtunnelConfig): string {
   if (cachedToken) return cachedToken;
 
