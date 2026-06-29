@@ -3,7 +3,12 @@ import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
-import { addOverrideLabels } from "../lib/compose.js";
+import {
+  addOverrideLabels,
+  CACHE_MODES,
+  DEFAULT_CACHE_MODE,
+  type CacheMode,
+} from "../lib/compose.js";
 import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
 import { parseFlags } from "../lib/flags.js";
@@ -11,7 +16,7 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const addHelp: HelpDoc = {
   command: "add",
-  synopsis: "devtun add <name> <service> <port> [--restart|--no-restart|--yes] [--help]",
+  synopsis: "devtun add <name> <service> <port> [--cache <mode>] [--restart|--no-restart|--yes] [--help]",
   description:
     "Register a project hostname. Creates a Cloudflare DNS record + custom hostname (with edge SSL cert),\nand writes Traefik routing labels into the project's docker-compose.override.yml.\nRun from the project directory.",
   args: [
@@ -20,6 +25,7 @@ const addHelp: HelpDoc = {
     { name: "port", required: true, description: "Port the service listens on inside the container." },
   ],
   flags: [
+    { name: "cache", type: "string", default: DEFAULT_CACHE_MODE, description: "Cache-control headers to inject via Traefik. 'none' = no middleware (upstream headers pass through), 'cdn' = CDN-Cache-Control: no-store (Cloudflare edge bypass only), 'all' = CDN + browser Cache-Control: no-store (defeats iOS Safari/Brave caches too)." },
     { name: "restart", description: "Run `docker compose up -d` after writing the override file. Never prompts." },
     { name: "no-restart", description: "Skip the container restart. Never prompts." },
     { name: "yes", aliases: ["y"], description: "Equivalent to --restart." },
@@ -36,6 +42,8 @@ const addHelp: HelpDoc = {
     { description: "Register myapp routing to the web service on port 3000", command: "devtun add myapp web 3000" },
     { description: "Same, but restart containers automatically (CI-friendly)", command: "devtun add myapp web 3000 --restart" },
     { description: "Same, but explicitly skip the restart (CI-friendly)", command: "devtun add myapp web 3000 --no-restart" },
+    { description: "Let the upstream container's cache headers pass through unchanged", command: "devtun add myapp web 3000 --cache none" },
+    { description: "Only bypass Cloudflare's edge cache; leave browser caching to the app", command: "devtun add myapp web 3000 --cache cdn" },
   ],
 };
 
@@ -43,8 +51,11 @@ export async function add(args: string[] = []): Promise<void> {
   if (handleHelp(args, addHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
+    string: ["cache"],
     aliases: { y: "yes" },
   });
+
+  const cache = resolveCache(flags["cache"]);
 
   const [name, service, portArg] = positional;
   if (!name || !service || !portArg) {
@@ -123,8 +134,11 @@ export async function add(args: string[] = []): Promise<void> {
     hostname,
     routerName: name,
     port,
+    cache,
   });
-  out.success(`Updated docker-compose.override.yml (${service}:${port})`);
+  out.success(
+    `Updated docker-compose.override.yml (${service}:${port}, cache=${cache})`
+  );
   out.blank();
 
   // --- Restart decision ---
@@ -151,4 +165,14 @@ async function resolveRestart(
   return confirm("Restart containers to apply changes? (docker compose up -d)", {
     defaultWhenNonInteractive: false,
   });
+}
+
+function resolveCache(value: string | boolean | undefined): CacheMode {
+  if (value === undefined) return DEFAULT_CACHE_MODE;
+  if (typeof value !== "string" || !(CACHE_MODES as readonly string[]).includes(value)) {
+    throw new Error(
+      `Invalid --cache value: ${String(value)}. Expected one of: ${CACHE_MODES.join(", ")}.`
+    );
+  }
+  return value as CacheMode;
 }

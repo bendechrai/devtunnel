@@ -105,6 +105,80 @@ describe("compose: addOverrideLabels", () => {
     });
   });
 
+  it("default cache mode injects CDN + browser Cache-Control no-store headers", () => {
+    addOverrideLabels({
+      projectDir: dir.path,
+      serviceName: "web",
+      hostname: "myapp.dev.example.com",
+      routerName: "myapp",
+      port: 3000,
+    });
+
+    const parsed = parseYaml(
+      readFileSync(join(dir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    const labels = parsed.services.web.labels;
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.CDN-Cache-Control"
+      ]
+    ).toBe("no-store");
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.Cache-Control"
+      ]
+    ).toBe("no-store, no-cache, must-revalidate, max-age=0");
+    expect(labels["traefik.http.routers.myapp.middlewares"]).toBe("myapp-nocache");
+  });
+
+  it("cache=cdn omits the browser Cache-Control header", () => {
+    addOverrideLabels({
+      projectDir: dir.path,
+      serviceName: "web",
+      hostname: "myapp.dev.example.com",
+      routerName: "myapp",
+      port: 3000,
+      cache: "cdn",
+    });
+
+    const parsed = parseYaml(
+      readFileSync(join(dir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    const labels = parsed.services.web.labels;
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.CDN-Cache-Control"
+      ]
+    ).toBe("no-store");
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.Cache-Control"
+      ]
+    ).toBeUndefined();
+    expect(labels["traefik.http.routers.myapp.middlewares"]).toBe("myapp-nocache");
+  });
+
+  it("cache=none emits no middleware labels at all", () => {
+    addOverrideLabels({
+      projectDir: dir.path,
+      serviceName: "web",
+      hostname: "myapp.dev.example.com",
+      routerName: "myapp",
+      port: 3000,
+      cache: "none",
+    });
+
+    const parsed = parseYaml(
+      readFileSync(join(dir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    const labels = parsed.services.web.labels;
+    expect(labels["traefik.http.routers.myapp.middlewares"]).toBeUndefined();
+    const middlewareKeys = Object.keys(labels).filter((k) =>
+      k.startsWith("traefik.http.middlewares.")
+    );
+    expect(middlewareKeys).toEqual([]);
+  });
+
   it("adds devtun to existing service networks list without duplicating", () => {
     writeFileSync(
       join(dir.path, "docker-compose.override.yml"),

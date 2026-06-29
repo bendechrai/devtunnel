@@ -152,6 +152,53 @@ describe("add (non-interactive flag handling)", () => {
       add(["myapp", "web", "3000", "--bogus"])
     ).rejects.toThrow(/Unknown flag: --bogus/);
   });
+
+  it("--cache=none skips the no-cache middleware in the override file", async () => {
+    const { readFileSync } = await import("fs");
+    const { parse: parseYaml } = await import("yaml");
+    const { add } = await import("../../src/commands/add.js");
+
+    await add(["myapp", "web", "3000", "--cache", "none"]);
+
+    const parsed = parseYaml(
+      readFileSync(join(projectDir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    const labels = parsed.services.web.labels;
+    expect(labels["traefik.http.routers.myapp.middlewares"]).toBeUndefined();
+    expect(
+      Object.keys(labels).some((k) => k.startsWith("traefik.http.middlewares."))
+    ).toBe(false);
+  });
+
+  it("--cache=cdn emits only the CDN-Cache-Control header", async () => {
+    const { readFileSync } = await import("fs");
+    const { parse: parseYaml } = await import("yaml");
+    const { add } = await import("../../src/commands/add.js");
+
+    await add(["myapp", "web", "3000", "--cache", "cdn"]);
+
+    const parsed = parseYaml(
+      readFileSync(join(projectDir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    const labels = parsed.services.web.labels;
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.CDN-Cache-Control"
+      ]
+    ).toBe("no-store");
+    expect(
+      labels[
+        "traefik.http.middlewares.myapp-nocache.headers.customresponseheaders.Cache-Control"
+      ]
+    ).toBeUndefined();
+  });
+
+  it("rejects an unknown --cache value", async () => {
+    const { add } = await import("../../src/commands/add.js");
+    await expect(
+      add(["myapp", "web", "3000", "--cache", "bogus"])
+    ).rejects.toThrow(/Invalid --cache value/);
+  });
 });
 
 describe("remove (non-interactive flag handling)", () => {
