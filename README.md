@@ -107,11 +107,27 @@ devtun add myapp-mail mail 8025
 
 SSL typically activates within seconds.
 
+#### Cache headers
+
+Dev tunnels default to aggressive no-cache behaviour because stale assets are the #1 source of "but it works on my machine" while iterating. The Traefik middleware that ships with `devtun add` sets both:
+
+- `CDN-Cache-Control: no-store` - tells the Cloudflare edge not to cache
+- `Cache-Control: no-store, no-cache, must-revalidate, max-age=0` - tells the browser not to cache (necessary because iOS Safari/Brave ignore `CDN-Cache-Control` and Next.js dev's default `no-cache, must-revalidate` is interpreted loosely)
+
+Override with `--cache <mode>`:
+
+```bash
+devtun add myapp web 3000                    # default: --cache all
+devtun add myapp web 3000 --cache cdn        # CDN bypass only; app controls browser caching
+devtun add myapp web 3000 --cache none       # no middleware; upstream headers pass through
+```
+
 ### Manage projects
 
 ```bash
 devtun add <name> <svc> <port>  # Register hostname routing to service on port
                                 #   Flags: --restart | --no-restart | --yes (-y)
+                                #          --cache none|cdn|all (default: all)
 devtun list              # List all registered project hostnames
 devtun status <name>     # Check SSL and routing status
 devtun remove <name>     # Remove hostname, DNS record, and labels
