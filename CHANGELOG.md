@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/bendechrai/devtunnel/compare/v1.2.0...v1.3.0) (2026-06-29)
+
+
+### Features
+
+* add --cache mode flag to devtun add for browser/CDN cache control ([12d2685](https://github.com/bendechrai/devtunnel/commit/12d2685560a587c1bbc9ca4bc21d704977e8f847))
+
 # [1.2.0](https://github.com/bendechrai/devtunnel/compare/v1.1.0...v1.2.0) (2026-05-30)
 
 
