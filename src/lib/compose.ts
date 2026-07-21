@@ -1,48 +1,105 @@
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
 import { join } from "path";
-import { configDir } from "./config.js";
-import { parseDocument, Document, YAMLMap } from "yaml";
+import { dockerSocketOf } from "./config.js";
+import type { InstanceContext } from "./instance.js";
+import type { DevtunnelConfig } from "./types.js";
+import { parseDocument, Document, YAMLMap, isSeq, isScalar } from "yaml";
 
 // --- Infra compose generation ---
 
-export function writeInfraCompose(): void {
-  const content = `services:
+export function writeInfraCompose(
+  inst: InstanceContext,
+  config: DevtunnelConfig
+): void {
+  const net = inst.name;
+  const socket = dockerSocketOf(config);
+
+  const traefikCommand = [
+    ...(config.dashboardPort ? ['"--api.insecure=true"'] : []),
+    '"--providers.docker=true"',
+    '"--providers.docker.exposedbydefault=false"',
+    `"--providers.docker.network=${net}"`,
+    '"--entrypoints.web.address=:80"',
+  ];
+
+  const ports: string[] = [];
+  if (config.publishHttpPort) {
+    ports.push(`"${config.publishHttpPort}:80"`);
+  }
+  if (config.dashboardPort) {
+    ports.push(`"127.0.0.1:${config.dashboardPort}:8080"`);
+  }
+  const portsBlock = ports.length
+    ? `    ports:\n${ports.map((p) => `      - ${p}`).join("\n")}\n`
+    : "";
+
+  const content = `name: ${inst.name}
+
+services:
   traefik:
     image: traefik:v3
-    container_name: devtun-traefik
+    container_name: ${inst.name}-traefik
     command:
-      - "--api.insecure=true"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=devtun"
-      - "--entrypoints.web.address=:80"
-    ports:
-      - "80:80"
-      - "127.0.0.1:8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+${traefikCommand.map((c) => `      - ${c}`).join("\n")}
+${portsBlock}    volumes:
+      - ${socket}:/var/run/docker.sock:ro
     networks:
-      - devtun
+      - ${net}
     restart: unless-stopped
 
   tunnel:
     image: cloudflare/cloudflared:latest
-    container_name: devtun-tunnel
+    container_name: ${inst.name}-tunnel
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=\${TUNNEL_TOKEN}
     networks:
-      - devtun
+      - ${net}
     restart: unless-stopped
     depends_on:
       - traefik
 
 networks:
-  devtun:
-    name: devtun
+  ${net}:
+    name: ${net}
     driver: bridge
 `;
-  writeFileSync(join(configDir(), "docker-compose.yml"), content);
+  mkdirSync(inst.dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(inst.dir, "docker-compose.yml"), content);
+}
+
+/**
+ * Detect a hand-edited docker socket in the existing compose file. Returns
+ * the on-disk host socket path when it disagrees with config, else null.
+ * Callers refuse to regenerate while this returns non-null, so a manual
+ * edit is never silently clobbered.
+ */
+export function checkComposeSocketDrift(
+  inst: InstanceContext,
+  config: DevtunnelConfig
+): string | null {
+  const composePath = join(inst.dir, "docker-compose.yml");
+  if (!existsSync(composePath)) return null;
+
+  let doc: Document;
+  try {
+    doc = parseDocument(readFileSync(composePath, "utf-8"));
+  } catch {
+    return null;
+  }
+  const volumes = doc.getIn(["services", "traefik", "volumes"]);
+  if (!isSeq(volumes)) return null;
+
+  for (const item of volumes.items) {
+    if (!isScalar(item)) continue;
+    const parts = String(item.value).split(":");
+    // "<host-socket>:/var/run/docker.sock[:ro]"
+    if (parts.length >= 2 && parts[1] === "/var/run/docker.sock") {
+      const onDisk = parts[0];
+      return onDisk === dockerSocketOf(config) ? null : onDisk;
+    }
+  }
+  return null;
 }
 
 // --- Per-project override merging ---
@@ -107,6 +164,8 @@ interface OverrideOptions {
   routerName: string;
   port: number;
   cache?: CacheMode;
+  /** Instance network the service joins (the devtun instance name). */
+  networkName: string;
 }
 
 export function addOverrideLabels(opts: OverrideOptions): void {
@@ -172,24 +231,25 @@ export function addOverrideLabels(opts: OverrideOptions): void {
   labelsNode.commentBefore = DEVTUNNEL_COMMENT;
   service.set("labels", labelsNode);
 
-  // Ensure service has devtun network
-  let serviceNetworks = service.get("networks");
+  // Ensure service has the instance network
+  const net = opts.networkName;
+  const serviceNetworks = service.get("networks");
   if (!serviceNetworks) {
-    service.set("networks", ["default", "devtun"]);
+    service.set("networks", ["default", net]);
   } else if (Array.isArray(service.toJSON().networks)) {
     const nets: string[] = service.toJSON().networks;
-    if (!nets.includes("devtun")) {
-      nets.push("devtun");
+    if (!nets.includes(net)) {
+      nets.push(net);
       service.set("networks", nets);
     }
   }
 
-  // Ensure top-level networks has devtun: external: true
-  let networks = doc.get("networks") as YAMLMap | undefined;
+  // Ensure top-level networks has <network>: external: true
+  const networks = doc.get("networks") as YAMLMap | undefined;
   if (!networks) {
-    doc.set("networks", { devtun: { external: true } });
-  } else if (!networks.get("devtun")) {
-    networks.set("devtun", { external: true });
+    doc.set("networks", { [net]: { external: true } });
+  } else if (!networks.get(net)) {
+    networks.set(net, { external: true });
   }
 
   writeFileSync(overridePath, doc.toString());
@@ -197,7 +257,8 @@ export function addOverrideLabels(opts: OverrideOptions): void {
 
 export function removeOverrideLabels(
   projectDir: string,
-  routerName: string
+  routerName: string,
+  networkName: string
 ): void {
   const overridePath = join(projectDir, "docker-compose.override.yml");
   if (!existsSync(overridePath)) return;
@@ -257,12 +318,12 @@ export function removeOverrideLabels(
       service.delete("labels");
     }
 
-    // Remove devtun network only if no traefik labels remain on this service
+    // Remove the instance network only if no traefik labels remain on this service
     if (!remainingTraefik) {
       const serviceJson = service.toJSON();
       if (Array.isArray(serviceJson?.networks)) {
         const nets = serviceJson.networks.filter(
-          (n: string) => n !== "devtun"
+          (n: string) => n !== networkName
         );
         if (nets.length === 0) {
           service.delete("networks");
@@ -292,21 +353,39 @@ export function removeOverrideLabels(
     }
   }
 
-  // Remove top-level devtun network if no services reference it
-  const anyDevtunRef = services.items.some((item) => {
-    const service = services.get(String(item.key)) as YAMLMap | undefined;
-    if (!service) return false;
-    const nets = service.toJSON()?.networks;
-    return Array.isArray(nets) && nets.includes("devtun");
-  });
-
-  if (!anyDevtunRef) {
-    const networks = doc.get("networks") as YAMLMap | undefined;
-    if (networks) {
-      networks.delete("devtun");
-      if (networks instanceof YAMLMap && networks.items.length === 0) {
-        doc.delete("networks");
+  // Drop top-level external networks (devtun-managed) no longer referenced
+  // by any service. Sweeping all of them - not just networkName - cleans up
+  // correctly even when the file was written against a different instance.
+  const networks = doc.get("networks") as YAMLMap | undefined;
+  if (networks) {
+    const referenced = new Set<string>();
+    for (const item of services.items) {
+      const service = services.get(String(item.key)) as YAMLMap | undefined;
+      const nets = service?.toJSON()?.networks;
+      if (Array.isArray(nets)) {
+        for (const n of nets) referenced.add(String(n));
       }
+    }
+    const toDelete: string[] = [];
+    for (const item of networks.items) {
+      const netName = String(item.key);
+      const netDef = networks.get(netName) as unknown;
+      const json =
+        netDef instanceof YAMLMap ? (netDef.toJSON() as Record<string, unknown>) : netDef;
+      const isExternalOnly =
+        json !== null &&
+        typeof json === "object" &&
+        Object.keys(json).length === 1 &&
+        (json as Record<string, unknown>)["external"] === true;
+      if (isExternalOnly && !referenced.has(netName)) {
+        toDelete.push(netName);
+      }
+    }
+    for (const netName of toDelete) {
+      networks.delete(netName);
+    }
+    if (networks.items.length === 0) {
+      doc.delete("networks");
     }
   }
 

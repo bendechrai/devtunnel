@@ -1,6 +1,7 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
+import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
 import { parseFlags } from "../lib/flags.js";
@@ -8,13 +9,14 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const statusHelp: HelpDoc = {
   command: "status",
-  synopsis: "devtun status [name] [--json] [--help]",
+  synopsis: "devtun status [name] [--instance <name>] [--json] [--help]",
   description:
     "Show the status of a specific project hostname, or (with no name) the overall infrastructure status\nincluding the zone, tunnel, fallback origin, and total registered projects.",
   args: [
     { name: "name", description: "Optional project name. Omit to see infrastructure status." },
   ],
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to inspect. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     {
       name: "json",
       description:
@@ -36,13 +38,18 @@ const statusHelp: HelpDoc = {
 
 export async function status(args: string[] = []): Promise<void> {
   if (handleHelp(args, statusHelp)) return;
-  const { positional, flags } = parseFlags(args, { boolean: ["json"] });
+  const { positional, flags } = parseFlags(args, {
+    boolean: ["json"],
+    string: ["instance"],
+    aliases: { i: "instance" },
+  });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);
 
   const name = positional[0];
 
-  const config = loadConfig();
+  const inst = resolveInstance(flags);
+  const config = loadConfig(inst.dir);
   const token = resolveToken(config);
   cf.setToken(token);
 

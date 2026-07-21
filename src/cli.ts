@@ -8,6 +8,7 @@ import { down } from "./commands/down.js";
 import { autostart } from "./commands/autostart.js";
 import { config } from "./commands/config.js";
 import { doctor } from "./commands/doctor.js";
+import { instances } from "./commands/instances.js";
 import * as out from "./lib/output.js";
 import { createRequire } from "module";
 
@@ -42,8 +43,13 @@ Config:
 System:
   autostart <action>    Manage start-on-boot (enable|disable|status)
   doctor                Health checks on config and Cloudflare state [--json]
+  instances             List devtun instances                        [--json]
   help                  Show this help
   version               Show version
+
+Most commands accept --instance <name> (-i) to target a named instance
+(own tunnel, FQDN, network, and Docker daemon). Defaults to $DEVTUN_INSTANCE
+or 'devtun' (~/.devtun). Named instances live at ~/.devtun/instances/<name>.
 `);
 }
 
@@ -76,6 +82,8 @@ async function main(): Promise<void> {
       return autostart(args);
     case "doctor":
       return doctor(args);
+    case "instances":
+      return instances(args);
     case "version":
     case "--version":
     case "-v":

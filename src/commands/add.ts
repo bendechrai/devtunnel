@@ -1,6 +1,7 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { loadConfig } from "../lib/config.js";
+import { loadConfig, dockerSocketOf } from "../lib/config.js";
+import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
 import {
@@ -16,7 +17,7 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const addHelp: HelpDoc = {
   command: "add",
-  synopsis: "devtun add <name> <service> <port> [--cache <mode>] [--restart|--no-restart|--yes] [--help]",
+  synopsis: "devtun add <name> <service> <port> [--instance <name>] [--cache <mode>] [--restart|--no-restart|--yes] [--help]",
   description:
     "Register a project hostname. Creates a Cloudflare DNS record + custom hostname (with edge SSL cert),\nand writes Traefik routing labels into the project's docker-compose.override.yml.\nRun from the project directory.",
   args: [
@@ -25,6 +26,7 @@ const addHelp: HelpDoc = {
     { name: "port", required: true, description: "Port the service listens on inside the container." },
   ],
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to attach to (determines the FQDN, network, and Docker daemon). Defaults to DEVTUN_INSTANCE or 'devtun'." },
     { name: "cache", type: "string", default: DEFAULT_CACHE_MODE, description: "Cache-control headers to inject via Traefik. 'none' = no middleware (upstream headers pass through), 'cdn' = CDN-Cache-Control: no-store (Cloudflare edge bypass only), 'all' = CDN + browser Cache-Control: no-store (defeats iOS Safari/Brave caches too)." },
     { name: "restart", description: "Run `docker compose up -d` after writing the override file. Never prompts." },
     { name: "no-restart", description: "Skip the container restart. Never prompts." },
@@ -51,8 +53,8 @@ export async function add(args: string[] = []): Promise<void> {
   if (handleHelp(args, addHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
-    string: ["cache"],
-    aliases: { y: "yes" },
+    string: ["cache", "instance"],
+    aliases: { y: "yes", i: "instance" },
   });
 
   const cache = resolveCache(flags["cache"]);
@@ -70,7 +72,8 @@ export async function add(args: string[] = []): Promise<void> {
     throw new Error(`Invalid port: ${portArg}`);
   }
 
-  const config = loadConfig();
+  const inst = resolveInstance(flags);
+  const config = loadConfig(inst.dir);
   const token = resolveToken(config);
   cf.setToken(token);
 
@@ -135,6 +138,7 @@ export async function add(args: string[] = []): Promise<void> {
     routerName: name,
     port,
     cache,
+    networkName: inst.name,
   });
   out.success(
     `Updated docker-compose.override.yml (${service}:${port}, cache=${cache})`
@@ -145,7 +149,7 @@ export async function add(args: string[] = []): Promise<void> {
   const shouldRestart = await resolveRestart(flags);
 
   if (shouldRestart) {
-    restartProject(projectDir);
+    restartProject(projectDir, dockerSocketOf(config));
   } else {
     out.info("Run this when ready:");
     out.info("  docker compose up -d");

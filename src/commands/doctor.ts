@@ -1,18 +1,22 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { configExists, loadConfig } from "../lib/config.js";
+import { configExists, loadConfig, dockerSocketOf } from "../lib/config.js";
+import { resolveInstance, type InstanceContext } from "../lib/instance.js";
+import { checkComposeSocketDrift } from "../lib/compose.js";
 import { resolveToken } from "../lib/token.js";
 import { isDockerRunning, isStackRunning } from "../lib/docker.js";
+import { existsSync } from "fs";
 import { parseFlags } from "../lib/flags.js";
 import { handleHelp, type HelpDoc } from "../lib/help.js";
 import type { DevtunnelConfig } from "../lib/types.js";
 
 const doctorHelp: HelpDoc = {
   command: "doctor",
-  synopsis: "devtun doctor [--json] [--help]",
+  synopsis: "devtun doctor [--instance <name>] [--json] [--help]",
   description:
-    "Run a read-only health check across config, Cloudflare API access, tunnel, SaaS state, fallback origin,\ncustom hostnames (with orphan detection), and the local Docker stack. First step for any troubleshooting.",
+    "Run a read-only health check across config, Cloudflare API access, tunnel, SaaS state, fallback origin,\ncustom hostnames (with orphan detection), the instance's Docker socket, and the local Docker stack.\nFirst step for any troubleshooting.",
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to check. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     {
       name: "json",
       description: "Emit { summary: {ok, warn, fail, skip}, checks: [{name, status, detail}] }.",
@@ -94,24 +98,30 @@ function finish(checks: Check[], tally: Tally, asJson: boolean): void {
 export async function doctor(args: string[] = []): Promise<void> {
   if (handleHelp(args, doctorHelp)) return;
 
-  const { flags } = parseFlags(args, { boolean: ["json"] });
+  const { flags } = parseFlags(args, {
+    boolean: ["json"],
+    string: ["instance"],
+    aliases: { i: "instance" },
+  });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);
 
-  out.header("devtun doctor");
+  const inst = resolveInstance(flags);
+
+  out.header(inst.isDefault ? "devtun doctor" : `devtun doctor (instance: ${inst.name})`);
 
   const { checks, tally, record } = makeRecorder();
 
   // 1. Config file
-  if (!configExists()) {
-    record("config file", "fail", "~/.devtun/config.json not found. Run `devtun setup`.");
+  if (!configExists(inst.dir)) {
+    record("config file", "fail", `${inst.dir}/config.json not found. Run \`devtun setup\`.`);
     finish(checks, tally, asJson);
     return;
   }
 
   let cfg: DevtunnelConfig;
   try {
-    cfg = loadConfig();
+    cfg = loadConfig(inst.dir);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     record("config file", "fail", msg);
@@ -132,7 +142,7 @@ export async function doctor(args: string[] = []): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     record("cloudflare token", "fail", msg);
     skipRemainingCloudflare(record);
-    await checkDocker(record);
+    await checkDocker(record, inst, cfg);
     finish(checks, tally, asJson);
     return;
   }
@@ -166,7 +176,7 @@ export async function doctor(args: string[] = []): Promise<void> {
     const msg = e instanceof Error ? e.message : String(e);
     record("zone access", "fail", msg);
     skipRemainingCloudflare(record, true);
-    await checkDocker(record);
+    await checkDocker(record, inst, cfg);
     finish(checks, tally, asJson);
     return;
   }
@@ -264,24 +274,45 @@ export async function doctor(args: string[] = []): Promise<void> {
   }
 
   // 8. Docker
-  await checkDocker(record);
+  await checkDocker(record, inst, cfg);
 
   finish(checks, tally, asJson);
 }
 
 async function checkDocker(
-  record: (name: string, status: CheckResult, detail: string) => void
+  record: (name: string, status: CheckResult, detail: string) => void,
+  inst: InstanceContext,
+  cfg: DevtunnelConfig
 ): Promise<void> {
-  if (!isDockerRunning()) {
-    record("docker", "fail", "not running");
+  const socket = dockerSocketOf(cfg);
+  const iFlag = inst.isDefault ? "" : ` -i ${inst.name}`;
+
+  if (!existsSync(socket)) {
+    record("docker socket", "fail", `${socket} does not exist`);
+  } else {
+    record("docker socket", "ok", socket);
+  }
+
+  const driftedSocket = checkComposeSocketDrift(inst, cfg);
+  if (driftedSocket) {
+    record(
+      "compose socket drift",
+      "warn",
+      `docker-compose.yml mounts ${driftedSocket} but config dockerSocket is ${socket}. ` +
+      `Run \`devtun config set dockerSocket ${driftedSocket}${iFlag}\` to adopt it.`
+    );
+  }
+
+  if (!isDockerRunning(socket)) {
+    record("docker", "fail", `not running (socket: ${socket})`);
     return;
   }
   record("docker", "ok", "running");
 
-  if (isStackRunning()) {
-    record("devtun stack", "ok", "running (use `devtun down` to stop)");
+  if (isStackRunning({ cwd: inst.dir, dockerSocket: socket })) {
+    record("devtun stack", "ok", `running (use \`devtun down${iFlag}\` to stop)`);
   } else {
-    record("devtun stack", "warn", "not running. Start it with `devtun up`.");
+    record("devtun stack", "warn", `not running. Start it with \`devtun up${iFlag}\`.`);
   }
 }
 

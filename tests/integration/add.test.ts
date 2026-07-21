@@ -159,4 +159,31 @@ describe("add command (integration)", () => {
     await expect(add(["myapp"])).rejects.toThrow(/Usage/);
     await expect(add(["myapp", "web"])).rejects.toThrow(/Usage/);
   });
+
+  it("attaches to a named instance: its FQDN and network land in the override", async () => {
+    const zone = addZone(mock.state, "other.com");
+    home.writeConfig(
+      {
+        domain: "other.com",
+        devSubdomain: "dev.other.com",
+        tunnelName: "dev-other-com-alt",
+        zoneId: zone.id,
+        accountId: zone.accountId,
+      },
+      "alt"
+    );
+
+    const { add } = await import("../../src/commands/add.js");
+    await add(["myapp", "web", "3000", "-i", "alt", "--no-restart"]);
+
+    const overridePath = join(projectDir.path, "docker-compose.override.yml");
+    expect(existsSync(overridePath)).toBe(true);
+    const parsed = parseYaml(readFileSync(overridePath, "utf-8"));
+    expect(parsed.services.web.labels["traefik.http.routers.myapp.rule"]).toBe(
+      "Host(`myapp.dev.other.com`)"
+    );
+    expect(parsed.services.web.networks).toContain("alt");
+    expect(parsed.networks.alt).toEqual({ external: true });
+    expect(parsed.networks.devtun).toBeUndefined();
+  });
 });

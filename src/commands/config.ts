@@ -1,21 +1,24 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
 import { loadConfig, saveConfig, configExists } from "../lib/config.js";
+import { resolveInstance, type InstanceContext } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
+import { parseFlags } from "../lib/flags.js";
 import { handleHelp, type HelpDoc } from "../lib/help.js";
 import type { DevtunnelConfig } from "../lib/types.js";
 
 const configHelp: HelpDoc = {
   command: "config",
   synopsis:
-    "devtun config [list] [--json]\n  devtun config get <key> [--json]\n  devtun config set <key> <value> [--force]",
+    "devtun config [list] [--instance <name>] [--json]\n  devtun config get <key> [--instance <name>] [--json]\n  devtun config set <key> <value> [--instance <name>] [--force]",
   description:
-    "Show or modify ~/.devtun/config.json. `set` validates against Cloudflare for destructive changes:\nchanging `domain` verifies the token can access the new zone and refuses if hostnames remain on the old\nzone (unless --force); changing `devSubdomain` refuses if hostnames are still on the old subdomain;\nchanging `tunnelName` clears the cached tunnelId/tunnelToken. tunnelToken is never exposed.",
+    "Show or modify an instance's config.json (~/.devtun for the default instance,\n~/.devtun/instances/<name> for named instances). `set` validates against Cloudflare for destructive\nchanges: changing `domain` verifies the token can access the new zone and refuses if hostnames remain\non the old zone (unless --force); changing `devSubdomain` refuses if hostnames are still on the old\nsubdomain; changing `tunnelName` clears the cached tunnelId/tunnelToken. tunnelToken is never exposed.\n\nInfra keys: `dockerSocket` (host Docker socket the instance targets), `publishHttpPort` and\n`dashboardPort` (host-port publishing, off by default; value is a port number or 'off').\nRun `devtun up` after changing them to apply.",
   args: [
-    { name: "key", description: "domain | devSubdomain | tunnelName | cfTokenSource" },
+    { name: "key", description: "domain | devSubdomain | tunnelName | cfTokenSource | dockerSocket | publishHttpPort | dashboardPort" },
     { name: "value", description: "(set only) New value for the key" },
   ],
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "Target instance. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     { name: "json", description: "Emit JSON. For `list`, the config object minus tunnelToken. For `get`, { [key]: value }." },
     { name: "force", description: "(set only) Skip the orphan-hostname safety check." },
     { name: "help", aliases: ["h"], description: "Show this help" },
@@ -35,23 +38,28 @@ const configHelp: HelpDoc = {
 
 export async function config(args: string[]): Promise<void> {
   if (handleHelp(args, configHelp)) return;
-  const force = args.includes("--force");
-  const asJson = args.includes("--json");
-  const positional = args.filter((a) => a !== "--force" && a !== "--json");
+  const { positional, flags } = parseFlags(args, {
+    boolean: ["force", "json"],
+    string: ["instance"],
+    aliases: { i: "instance" },
+  });
+  const force = flags["force"] === true;
+  const asJson = flags["json"] === true;
+  const inst = resolveInstance(flags);
   const [action, key, ...rest] = positional;
   const value = rest.join(" ");
 
   switch (action) {
     case "set":
-      return set(key, value, force);
+      return set(inst, key, value, force);
     case "get":
-      return get(key, asJson);
+      return get(inst, key, asJson);
     case "list":
     case undefined:
-      return list(asJson);
+      return list(inst, asJson);
     default:
       throw new Error(
-        "Usage: devtun config [list|set <key> <value> [--force]|get <key>] [--json]"
+        "Usage: devtun config [list|set <key> <value> [--force]|get <key>] [--instance <name>] [--json]"
       );
   }
 }
@@ -61,11 +69,15 @@ const VALID_KEYS = [
   "devSubdomain",
   "tunnelName",
   "cfTokenSource",
+  "dockerSocket",
+  "publishHttpPort",
+  "dashboardPort",
 ] as const;
 
 type ValidKey = (typeof VALID_KEYS)[number];
 
 async function set(
+  inst: InstanceContext,
   key: string | undefined,
   value: string,
   force: boolean
@@ -73,7 +85,7 @@ async function set(
   if (!key || !value) {
     throw new Error("Usage: devtun config set <key> <value> [--force]");
   }
-  if (!configExists()) {
+  if (!configExists(inst.dir)) {
     throw new Error('No config found. Run "devtun setup" first.');
   }
   if (!VALID_KEYS.includes(key as ValidKey)) {
@@ -82,27 +94,73 @@ async function set(
     );
   }
 
-  const cfg = loadConfig();
+  const cfg = loadConfig(inst.dir);
 
   switch (key as ValidKey) {
     case "domain":
-      await setDomain(cfg, value, force);
+      await setDomain(inst, cfg, value, force);
       return;
     case "devSubdomain":
-      await setDevSubdomain(cfg, value, force);
+      await setDevSubdomain(inst, cfg, value, force);
       return;
     case "tunnelName":
-      setTunnelName(cfg, value);
+      setTunnelName(inst, cfg, value);
       return;
     case "cfTokenSource":
       cfg.cfTokenSource = value;
-      saveConfig(cfg);
+      saveConfig(inst.dir, cfg);
       out.success(`Set cfTokenSource = ${value}`);
+      return;
+    case "dockerSocket":
+      setDockerSocket(inst, cfg, value);
+      return;
+    case "publishHttpPort":
+      setPort(inst, cfg, "publishHttpPort", value);
+      return;
+    case "dashboardPort":
+      setPort(inst, cfg, "dashboardPort", value);
       return;
   }
 }
 
+function setDockerSocket(
+  inst: InstanceContext,
+  cfg: DevtunnelConfig,
+  value: string
+): void {
+  if (!value.startsWith("/")) {
+    throw new Error(`dockerSocket must be an absolute path, got: ${value}`);
+  }
+  cfg.dockerSocket = value;
+  saveConfig(inst.dir, cfg);
+  out.success(`Set dockerSocket = ${value}`);
+  out.info(`Run \`devtun up${inst.isDefault ? "" : ` -i ${inst.name}`}\` to apply.`);
+}
+
+function setPort(
+  inst: InstanceContext,
+  cfg: DevtunnelConfig,
+  key: "publishHttpPort" | "dashboardPort",
+  value: string
+): void {
+  if (value === "off" || value === "false") {
+    delete cfg[key];
+    saveConfig(inst.dir, cfg);
+    out.success(`Set ${key} = off`);
+  } else {
+    const port = parseInt(value, 10);
+    if (isNaN(port) || port <= 0 || port > 65535 || String(port) !== value) {
+      throw new Error(`Invalid ${key}: ${value}. Expected a port number (1-65535) or 'off'.`);
+    }
+    cfg[key] = port;
+    saveConfig(inst.dir, cfg);
+    out.success(`Set ${key} = ${port}`);
+  }
+  out.info(`Run \`devtun up${inst.isDefault ? "" : ` -i ${inst.name}`}\` to apply.`);
+}
+
 async function setDomain(
+  inst: InstanceContext,
   cfg: DevtunnelConfig,
   newDomain: string,
   force: boolean
@@ -156,7 +214,7 @@ async function setDomain(
   delete cfg.accountId;
   delete cfg.tunnelId;
   delete cfg.tunnelToken;
-  saveConfig(cfg);
+  saveConfig(inst.dir, cfg);
 
   out.blank();
   out.success(`domain: ${oldDomain} -> ${newDomain}`);
@@ -165,6 +223,7 @@ async function setDomain(
 }
 
 async function setDevSubdomain(
+  inst: InstanceContext,
   cfg: DevtunnelConfig,
   newSubdomain: string,
   force: boolean
@@ -202,7 +261,7 @@ async function setDevSubdomain(
 
   const oldSubdomain = cfg.devSubdomain;
   cfg.devSubdomain = newSubdomain;
-  saveConfig(cfg);
+  saveConfig(inst.dir, cfg);
 
   out.blank();
   out.success(`devSubdomain: ${oldSubdomain} -> ${newSubdomain}`);
@@ -211,7 +270,11 @@ async function setDevSubdomain(
   );
 }
 
-function setTunnelName(cfg: DevtunnelConfig, newName: string): void {
+function setTunnelName(
+  inst: InstanceContext,
+  cfg: DevtunnelConfig,
+  newName: string
+): void {
   if (cfg.tunnelName === newName) {
     out.info(`tunnelName is already ${newName}. No change.`);
     return;
@@ -222,7 +285,7 @@ function setTunnelName(cfg: DevtunnelConfig, newName: string): void {
   cfg.tunnelName = newName;
   delete cfg.tunnelId;
   delete cfg.tunnelToken;
-  saveConfig(cfg);
+  saveConfig(inst.dir, cfg);
 
   out.blank();
   out.success(`tunnelName: ${oldName} -> ${newName}`);
@@ -235,14 +298,14 @@ function setTunnelName(cfg: DevtunnelConfig, newName: string): void {
   }
 }
 
-function get(key: string | undefined, asJson: boolean): void {
+function get(inst: InstanceContext, key: string | undefined, asJson: boolean): void {
   if (!key) {
     throw new Error("Usage: devtun config get <key> [--json]");
   }
   if (key === "tunnelToken") {
     throw new Error("tunnelToken is sensitive and cannot be read via `config get`.");
   }
-  const cfg = loadConfig();
+  const cfg = loadConfig(inst.dir);
   const value = (cfg as unknown as Record<string, string | undefined>)[key];
   if (asJson) {
     out.setJsonMode(true);
@@ -256,11 +319,11 @@ function get(key: string | undefined, asJson: boolean): void {
   }
 }
 
-function list(asJson: boolean): void {
-  if (!configExists()) {
+function list(inst: InstanceContext, asJson: boolean): void {
+  if (!configExists(inst.dir)) {
     throw new Error('No config found. Run "devtun setup" first.');
   }
-  const cfg = loadConfig();
+  const cfg = loadConfig(inst.dir);
 
   if (asJson) {
     out.setJsonMode(true);
@@ -271,15 +334,18 @@ function list(asJson: boolean): void {
     return;
   }
 
-  out.header("devtun config");
-  out.info(`domain:        ${cfg.domain}`);
-  out.info(`devSubdomain:  ${cfg.devSubdomain}`);
-  out.info(`tunnelName:    ${cfg.tunnelName}`);
-  out.info(`cfTokenSource: ${cfg.cfTokenSource ?? "(not set - using env var)"}`);
-  out.info(`tunnelId:      ${cfg.tunnelId ?? "(not set)"}`);
-  out.info(`zoneId:        ${cfg.zoneId ?? "(not set)"}`);
-  out.info(`accountId:     ${cfg.accountId ?? "(not set)"}`);
+  out.header(inst.isDefault ? "devtun config" : `devtun config (instance: ${inst.name})`);
+  out.info(`domain:          ${cfg.domain}`);
+  out.info(`devSubdomain:    ${cfg.devSubdomain}`);
+  out.info(`tunnelName:      ${cfg.tunnelName}`);
+  out.info(`cfTokenSource:   ${cfg.cfTokenSource ?? "(not set - using env var)"}`);
+  out.info(`tunnelId:        ${cfg.tunnelId ?? "(not set)"}`);
+  out.info(`zoneId:          ${cfg.zoneId ?? "(not set)"}`);
+  out.info(`accountId:       ${cfg.accountId ?? "(not set)"}`);
+  out.info(`dockerSocket:    ${cfg.dockerSocket ?? "(default: /var/run/docker.sock)"}`);
+  out.info(`publishHttpPort: ${cfg.publishHttpPort || "off"}`);
+  out.info(`dashboardPort:   ${cfg.dashboardPort || "off"}`);
   out.blank();
-  out.dim("~/.devtun/config.json");
+  out.dim(`${inst.dir}/config.json`);
   out.blank();
 }

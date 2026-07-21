@@ -8,9 +8,10 @@ export interface IsolatedHome {
   configDir: string;
   configFile: string;
   cleanup: () => void;
-  writeConfig: (cfg: DevtunnelConfig) => void;
-  readConfig: () => DevtunnelConfig;
-  configExists: () => boolean;
+  writeConfig: (cfg: DevtunnelConfig, instance?: string) => void;
+  readConfig: (instance?: string) => DevtunnelConfig;
+  configExists: (instance?: string) => boolean;
+  instanceDir: (instance: string) => string;
 }
 
 export function makeIsolatedHome(): IsolatedHome {
@@ -21,6 +22,11 @@ export function makeIsolatedHome(): IsolatedHome {
 
   const originalHome = process.env["HOME"];
   process.env["HOME"] = homeDir;
+
+  const instanceDir = (instance: string): string =>
+    instance === "devtun" ? configDir : join(configDir, "instances", instance);
+  const instanceConfigFile = (instance?: string): string =>
+    instance === undefined ? configFile : join(instanceDir(instance), "config.json");
 
   return {
     homeDir,
@@ -34,12 +40,15 @@ export function makeIsolatedHome(): IsolatedHome {
       }
       rmSync(homeDir, { recursive: true, force: true });
     },
-    writeConfig: (cfg) => {
-      writeFileSync(configFile, JSON.stringify(cfg, null, 2));
+    writeConfig: (cfg, instance) => {
+      const file = instanceConfigFile(instance);
+      mkdirSync(join(file, ".."), { recursive: true });
+      writeFileSync(file, JSON.stringify(cfg, null, 2));
     },
-    readConfig: () => {
-      return JSON.parse(readFileSync(configFile, "utf-8")) as DevtunnelConfig;
+    readConfig: (instance) => {
+      return JSON.parse(readFileSync(instanceConfigFile(instance), "utf-8")) as DevtunnelConfig;
     },
-    configExists: () => existsSync(configFile),
+    configExists: (instance) => existsSync(instanceConfigFile(instance)),
+    instanceDir,
   };
 }

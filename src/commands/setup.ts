@@ -1,9 +1,17 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { configExists, loadConfig, saveConfig, writeEnvFile } from "../lib/config.js";
-import { writeInfraCompose } from "../lib/compose.js";
+import {
+  configExists,
+  loadConfig,
+  saveConfig,
+  writeEnvFile,
+  dockerSocketOf,
+  DEFAULT_DOCKER_SOCKET,
+} from "../lib/config.js";
+import { writeInfraCompose, checkComposeSocketDrift } from "../lib/compose.js";
 import { resolveToken } from "../lib/token.js";
 import { isDockerRunning, composeUp } from "../lib/docker.js";
+import { resolveInstance } from "../lib/instance.js";
 import { ask, confirm, isInteractive, waitForEnter } from "../lib/prompt.js";
 import { parseFlags } from "../lib/flags.js";
 import { handleHelp, type HelpDoc } from "../lib/help.js";
@@ -12,22 +20,26 @@ import type { DevtunnelConfig } from "../lib/types.js";
 const setupHelp: HelpDoc = {
   command: "setup",
   synopsis:
-    "devtun setup [--domain=<zone>] [--dev-subdomain=<sub>] [--tunnel-name=<name>]\n              [--cf-token-source=<source>] [--yes] [--help]",
+    "devtun setup [--instance <name>] [--domain=<zone>] [--dev-subdomain=<sub>] [--tunnel-name=<name>]\n              [--docker-socket=<path>] [--cf-token-source=<source>] [--yes] [--help]",
   description:
-    "One-time infrastructure setup. Idempotent: re-run safely after fixing an issue. Walks through:\nconfig, Docker check, Cloudflare zone, tunnel, SSL settings, Cloudflare for SaaS + fallback origin,\nthen starts the local Traefik + cloudflared stack.\n\nIf ~/.devtun/config.json doesn't exist yet, values come from flags > env vars > interactive prompts.\nIn a non-TTY context (CI, automation), all four values must be provided via flags or env.\nIf Cloudflare for SaaS needs to be enabled in the dashboard, the command pauses (TTY) or exits\nwith code 2 (non-TTY) with the dashboard URL.",
+    "One-time infrastructure setup. Idempotent: re-run safely after fixing an issue. Walks through:\nconfig, Docker check, Cloudflare zone, tunnel, SSL settings, Cloudflare for SaaS + fallback origin,\nthen starts the local Traefik + cloudflared stack.\n\nEach instance is fully independent (own tunnel, network, containers, Docker daemon). The default\ninstance lives at ~/.devtun; named instances at ~/.devtun/instances/<name>.\n\nIf the instance's config.json doesn't exist yet, values come from flags > env vars > interactive\nprompts. In a non-TTY context (CI, automation), required values must be provided via flags or env.\nIf Cloudflare for SaaS needs to be enabled in the dashboard, the command pauses (TTY) or exits\nwith code 2 (non-TTY) with the dashboard URL.",
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "Instance to set up. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     { name: "domain", type: "string", description: "Root domain (matches a Cloudflare zone on your account)." },
     { name: "dev-subdomain", type: "string", description: "Wildcard subdomain for projects, e.g. dev.example.com." },
-    { name: "tunnel-name", type: "string", description: "Cloudflare Tunnel name. Defaults to dev-<dashified-domain>." },
+    { name: "tunnel-name", type: "string", description: "Cloudflare Tunnel name. Defaults to dev-<dashified-domain> (plus -<instance> for named instances)." },
+    { name: "docker-socket", type: "string", description: "Host Docker socket this instance's Traefik watches. Defaults to /var/run/docker.sock." },
     { name: "cf-token-source", type: "string", description: "1Password reference (op://...) or literal token. Stored in config." },
     { name: "yes", aliases: ["y"], description: "Auto-confirm destructive prompts (e.g., recreating a locally-managed tunnel)." },
     { name: "help", aliases: ["h"], description: "Show this help" },
   ],
   env: [
     { name: "CLOUDFLARE_API_TOKEN", description: "Cloudflare API token. Takes precedence over cfTokenSource." },
+    { name: "DEVTUN_INSTANCE", description: "Same as --instance." },
     { name: "DEVTUN_DOMAIN", description: "Same as --domain. Used when --domain isn't passed." },
     { name: "DEVTUN_DEV_SUBDOMAIN", description: "Same as --dev-subdomain." },
     { name: "DEVTUN_TUNNEL_NAME", description: "Same as --tunnel-name." },
+    { name: "DEVTUN_DOCKER_SOCK", description: "Same as --docker-socket." },
   ],
   exits: [
     { code: 0, meaning: "Setup completed (stack up)" },
@@ -45,23 +57,25 @@ export async function setup(args: string[] = []): Promise<void> {
   if (handleHelp(args, setupHelp)) return;
 
   const { flags } = parseFlags(args, {
-    string: ["domain", "dev-subdomain", "tunnel-name", "cf-token-source"],
+    string: ["instance", "domain", "dev-subdomain", "tunnel-name", "docker-socket", "cf-token-source"],
     boolean: ["yes"],
-    aliases: { y: "yes" },
+    aliases: { y: "yes", i: "instance" },
   });
   const autoYes = flags["yes"] === true;
+  const inst = resolveInstance(flags);
 
-  out.header("devtun setup");
+  out.header(inst.isDefault ? "devtun setup" : `devtun setup (instance: ${inst.name})`);
 
   // --- Step 1: Config ---
   let config: DevtunnelConfig;
 
-  if (configExists()) {
-    config = loadConfig();
+  if (configExists(inst.dir)) {
+    config = loadConfig(inst.dir);
     out.step(1, "Configuration");
     out.info(`Domain: ${config.domain}`);
     out.info(`Dev subdomain: *.${config.devSubdomain}`);
     out.info(`Tunnel: ${config.tunnelName}`);
+    out.info(`Docker socket: ${dockerSocketOf(config)}`);
   } else {
     out.step(1, "Configuration");
     out.info("No config found. Let's set one up.");
@@ -82,7 +96,9 @@ export async function setup(args: string[] = []): Promise<void> {
         `Dev subdomain [${defaultDev}]: `,
         { defaultValue: defaultDev }
       )) || defaultDev;
-    const defaultTunnel = `dev-${domain.replace(/\./g, "-")}`;
+    const defaultTunnel = inst.isDefault
+      ? `dev-${domain.replace(/\./g, "-")}`
+      : `dev-${domain.replace(/\./g, "-")}-${inst.name}`;
     const tunnelName =
       (await resolveValue(
         "tunnel-name",
@@ -91,6 +107,14 @@ export async function setup(args: string[] = []): Promise<void> {
         `Tunnel name [${defaultTunnel}]: `,
         { defaultValue: defaultTunnel }
       )) || defaultTunnel;
+    const dockerSocket =
+      (await resolveValue(
+        "docker-socket",
+        flags["docker-socket"],
+        process.env["DEVTUN_DOCKER_SOCK"] ?? process.env["DEVTUN_DOCKER_SOCKET"],
+        `Docker socket [${DEFAULT_DOCKER_SOCKET}]: `,
+        { defaultValue: DEFAULT_DOCKER_SOCKET }
+      )) || DEFAULT_DOCKER_SOCKET;
     const cfTokenSource = await resolveValue(
       "cf-token-source",
       flags["cf-token-source"],
@@ -101,15 +125,18 @@ export async function setup(args: string[] = []): Promise<void> {
 
     config = { domain, devSubdomain, tunnelName };
     if (cfTokenSource) config.cfTokenSource = cfTokenSource;
-    saveConfig(config);
-    out.success("Config saved to ~/.devtun/config.json");
+    if (dockerSocket !== DEFAULT_DOCKER_SOCKET) config.dockerSocket = dockerSocket;
+    saveConfig(inst.dir, config);
+    out.success(`Config saved to ${inst.dir}/config.json`);
   }
   out.blank();
 
   // --- Step 2: Prerequisites ---
   out.step(2, "Checking prerequisites...");
-  if (!isDockerRunning()) {
-    throw new Error("Docker is not running. Start Docker and try again.");
+  if (!isDockerRunning(dockerSocketOf(config))) {
+    throw new Error(
+      `Docker is not running (socket: ${dockerSocketOf(config)}). Start Docker and try again.`
+    );
   }
   out.info("Docker: running");
 
@@ -124,7 +151,7 @@ export async function setup(args: string[] = []): Promise<void> {
     const zone = await cf.getZone(config.domain);
     config.zoneId = zone.zoneId;
     config.accountId = zone.accountId;
-    saveConfig(config);
+    saveConfig(inst.dir, config);
   }
   out.info(`Zone ID: ${config.zoneId}`);
   out.info(`Account ID: ${config.accountId}`);
@@ -145,7 +172,7 @@ export async function setup(args: string[] = []): Promise<void> {
       config.tunnelId = tunnel.id;
       out.success(`Created (${tunnel.id})`);
     }
-    saveConfig(config);
+    saveConfig(inst.dir, config);
   } else {
     out.info(`Tunnel: ${config.tunnelName} (${config.tunnelId})`);
   }
@@ -192,17 +219,22 @@ export async function setup(args: string[] = []): Promise<void> {
 
     const newTunnel = await cf.createTunnel(accountId, config.tunnelName);
     config.tunnelId = newTunnel.id;
-    saveConfig(config);
+    saveConfig(inst.dir, config);
     out.success(`Created new tunnel (${newTunnel.id})`);
     tunnelToken = await cf.getTunnelToken(accountId, config.tunnelId!);
   }
   config.tunnelToken = tunnelToken;
-  saveConfig(config);
+  saveConfig(inst.dir, config);
   out.info("Tunnel token: retrieved");
 
   // Configure tunnel ingress
   out.info("Configuring ingress rules...");
-  await cf.configureTunnel(accountId, config.tunnelId!, config.devSubdomain);
+  await cf.configureTunnel(
+    accountId,
+    config.tunnelId!,
+    config.devSubdomain,
+    `${inst.name}-traefik`
+  );
   out.success(`Ingress: *.${config.devSubdomain} -> traefik`);
   out.blank();
 
@@ -301,19 +333,29 @@ export async function setup(args: string[] = []): Promise<void> {
 
   // --- Step 7: Generate compose and start ---
   out.step(7, "Starting services...");
-  writeInfraCompose();
-  writeEnvFile({ TUNNEL_TOKEN: tunnelToken });
-  out.info("Generated ~/.devtun/docker-compose.yml");
+  const driftedSocket = checkComposeSocketDrift(inst, config);
+  if (driftedSocket) {
+    throw new Error(
+      `docker-compose.yml mounts ${driftedSocket} but config dockerSocket is ${dockerSocketOf(config)}.\n` +
+      `Run: devtun config set dockerSocket ${driftedSocket}\n` +
+      `(or delete ${inst.dir}/docker-compose.yml to accept regeneration)`
+    );
+  }
+  writeInfraCompose(inst, config);
+  writeEnvFile(inst.dir, { TUNNEL_TOKEN: tunnelToken });
+  out.info(`Generated ${inst.dir}/docker-compose.yml`);
 
-  composeUp();
+  composeUp({ cwd: inst.dir, dockerSocket: dockerSocketOf(config) });
   out.blank();
 
   // --- Done ---
   out.header("Setup complete!");
   out.info("Register a project:");
-  out.info("  devtun add <name>");
+  out.info(inst.isDefault ? "  devtun add <name>" : `  devtun add <name> -i ${inst.name}`);
   out.blank();
-  out.info("Traefik dashboard: http://localhost:8080");
+  if (config.dashboardPort) {
+    out.info(`Traefik dashboard: http://localhost:${config.dashboardPort}`);
+  }
   out.blank();
 }
 

@@ -64,6 +64,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
       tunnelId: "tunnel-1",
@@ -80,9 +81,10 @@ describe("doctor command (integration)", () => {
     expect(output).toContain("[OK] cloudflare for SaaS");
     expect(output).toContain("[OK] fallback origin");
     expect(output).toContain("[OK] custom hostnames");
+    expect(output).toContain("[OK] docker socket");
     expect(output).toContain("[OK] docker");
     expect(output).toContain("[OK] devtun stack");
-    expect(output).toMatch(/9 ok, 0 warning/);
+    expect(output).toMatch(/10 ok, 0 warning/);
   });
 
   it("warns when stored zoneId is stale", async () => {
@@ -102,6 +104,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: "wrong-zone-id",
       accountId: zone.accountId,
       tunnelId: "tunnel-1",
@@ -143,6 +146,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
       tunnelId: "tunnel-1",
@@ -168,6 +172,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
     });
@@ -197,6 +202,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
       tunnelId: "tunnel-1",
@@ -227,6 +233,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
       tunnelId: "tunnel-1",
@@ -253,6 +260,7 @@ describe("doctor command (integration)", () => {
       domain: "example.com",
       devSubdomain: "dev.example.com",
       tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
       zoneId: zone.id,
       accountId: zone.accountId,
       tunnelId: "tunnel-stale",

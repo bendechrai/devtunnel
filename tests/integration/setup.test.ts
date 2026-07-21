@@ -149,4 +149,50 @@ describe("setup (non-interactive)", () => {
     expect(cfg.domain).toBe("example.com");
     expect(cfg.tunnelId).toBeTruthy();
   });
+
+  it("sets up a named instance without touching the default instance", async () => {
+    const zone = addZone(mock.state, "other.com", { saasEnabled: true });
+    home.writeConfig({
+      domain: "example.com",
+      devSubdomain: "dev.example.com",
+      tunnelName: "dev-example-com",
+    });
+
+    const { setup } = await import("../../src/commands/setup.js");
+    await setup([
+      "-i", "alt",
+      "--domain", "other.com",
+      "--dev-subdomain", "dev.other.com",
+      "--docker-socket", "/var/run/docker-lightsout.sock",
+      "--yes",
+    ]);
+
+    // Named instance config lands in instances/alt, default untouched.
+    const altCfg = home.readConfig("alt");
+    expect(altCfg.domain).toBe("other.com");
+    expect(altCfg.devSubdomain).toBe("dev.other.com");
+    expect(altCfg.tunnelName).toBe("dev-other-com-alt");
+    expect(altCfg.dockerSocket).toBe("/var/run/docker-lightsout.sock");
+    expect(altCfg.tunnelId).toBeTruthy();
+
+    const defaultCfg = home.readConfig();
+    expect(defaultCfg.domain).toBe("example.com");
+    expect(defaultCfg.tunnelId).toBeUndefined();
+
+    // Tunnel ingress targets the instance's traefik container.
+    const account = mock.state.accounts.get(zone.accountId);
+    if (!account) throw new Error("account not seeded");
+    const tunnelConfig = account.tunnelConfigs.get(altCfg.tunnelId!) as {
+      config: { ingress: Array<{ hostname?: string; service: string }> };
+    };
+    expect(tunnelConfig.config.ingress[0]).toEqual({
+      hostname: "*.dev.other.com",
+      service: "http://alt-traefik:80",
+    });
+  });
+
+  it("rejects reserved instance names", async () => {
+    const { setup } = await import("../../src/commands/setup.js");
+    await expect(setup(["-i", "docker0", "--yes"])).rejects.toThrow(/reserved/);
+  });
 });

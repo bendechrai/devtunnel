@@ -59,6 +59,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
       });
@@ -82,6 +83,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
       });
@@ -112,6 +114,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
         tunnelId: "tunnel-1",
@@ -145,6 +148,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
       });
@@ -167,6 +171,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
       });
@@ -200,6 +205,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
         tunnelId: "tunnel-1",
@@ -212,10 +218,11 @@ describe("--json output", () => {
         summary: { ok: number; warn: number; fail: number; skip: number };
         checks: Array<{ name: string; status: string; detail: string }>;
       }>();
-      expect(result.summary).toEqual({ ok: 9, warn: 0, fail: 0, skip: 0 });
-      expect(result.checks).toHaveLength(9);
+      expect(result.summary).toEqual({ ok: 10, warn: 0, fail: 0, skip: 0 });
+      expect(result.checks).toHaveLength(10);
       const names = result.checks.map((c) => c.name);
       expect(names).toContain("config file");
+      expect(names).toContain("docker socket");
       expect(names).toContain("zone access");
       expect(names).toContain("custom hostnames");
       expect(names).toContain("devtun stack");
@@ -246,6 +253,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: "z1",
         accountId: "a1",
         tunnelId: "t1",
@@ -258,6 +266,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: "z1",
         accountId: "a1",
         tunnelId: "t1",
@@ -269,6 +278,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         tunnelToken: "SECRET-DO-NOT-LEAK",
       });
 
@@ -285,6 +295,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
       });
 
       const { config } = await import("../../src/commands/config.js");
@@ -298,6 +309,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
       });
 
       const { config } = await import("../../src/commands/config.js");
@@ -311,6 +323,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         tunnelToken: "secret",
       });
 
@@ -331,6 +344,7 @@ describe("--json output", () => {
         domain: "example.com",
         devSubdomain: "dev.example.com",
         tunnelName: "dev-example-com",
+        dockerSocket: home.homeDir,
         zoneId: zone.id,
         accountId: zone.accountId,
       });

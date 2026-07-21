@@ -7,6 +7,12 @@ export interface DevtunnelConfig {
   zoneId?: string;
   accountId?: string;
   cfTokenSource?: string;
+  /** Host Docker socket the instance's Traefik watches. Default /var/run/docker.sock. */
+  dockerSocket?: string;
+  /** Publish Traefik's web entrypoint on this host port. Off by default. */
+  publishHttpPort?: number | false;
+  /** Publish the Traefik dashboard on 127.0.0.1:<port>. Off by default. */
+  dashboardPort?: number | false;
 }
 
 export interface CloudflareResponse<T> {

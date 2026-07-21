@@ -1,6 +1,7 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { loadConfig } from "../lib/config.js";
+import { loadConfig, dockerSocketOf } from "../lib/config.js";
+import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
 import { validateProjectName } from "../lib/validate.js";
 import { removeOverrideLabels } from "../lib/compose.js";
@@ -11,13 +12,14 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const removeHelp: HelpDoc = {
   command: "remove",
-  synopsis: "devtun remove <name> [--restart|--no-restart|--yes] [--help]",
+  synopsis: "devtun remove <name> [--instance <name>] [--restart|--no-restart|--yes] [--help]",
   description:
     "Remove a project hostname. Deletes the Cloudflare custom hostname, DNS record, and TXT verification\nrecord (if present), and strips the Traefik labels from the project's docker-compose.override.yml.\nRun from the project directory so the local file is cleaned up.",
   args: [
     { name: "name", required: true, description: "Project name (the same one used with `devtun add`)." },
   ],
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "devtun instance the project was added to. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     { name: "restart", description: "Run `docker compose up -d` after cleaning the override file. Never prompts." },
     { name: "no-restart", description: "Skip the container restart. Never prompts." },
     { name: "yes", aliases: ["y"], description: "Equivalent to --restart." },
@@ -40,7 +42,8 @@ export async function remove(args: string[] = []): Promise<void> {
   if (handleHelp(args, removeHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
-    aliases: { y: "yes" },
+    string: ["instance"],
+    aliases: { y: "yes", i: "instance" },
   });
 
   const [name] = positional;
@@ -51,7 +54,8 @@ export async function remove(args: string[] = []): Promise<void> {
   }
   validateProjectName(name);
 
-  const config = loadConfig();
+  const inst = resolveInstance(flags);
+  const config = loadConfig(inst.dir);
   const token = resolveToken(config);
   cf.setToken(token);
 
@@ -88,13 +92,13 @@ export async function remove(args: string[] = []): Promise<void> {
 
   // --- Override file ---
   const projectDir = process.cwd();
-  removeOverrideLabels(projectDir, name);
+  removeOverrideLabels(projectDir, name, inst.name);
   out.info("Cleaned docker-compose.override.yml");
   out.blank();
 
   const shouldRestart = await resolveRestart(flags);
   if (shouldRestart) {
-    restartProject(projectDir);
+    restartProject(projectDir, dockerSocketOf(config));
   }
 
   out.blank();

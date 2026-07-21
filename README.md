@@ -151,6 +151,32 @@ devtun config set <k> <v>  # Update a config value
 devtun config get <key>  # Get a config value
 ```
 
+Beyond the Cloudflare keys (`domain`, `devSubdomain`, `tunnelName`, `cfTokenSource`), three infra keys control the generated stack (run `devtun up` after changing them):
+
+- `dockerSocket` -- host Docker socket the instance's Traefik watches and the CLI talks to (default `/var/run/docker.sock`). On hosts with more than one Docker daemon, point each instance at its daemon's socket.
+- `publishHttpPort` -- publish Traefik's HTTP entrypoint on a host port (e.g. `80`), or `off` (default). Not needed for tunnel routing: cloudflared reaches Traefik over the instance's Docker network.
+- `dashboardPort` -- publish the Traefik dashboard on `127.0.0.1:<port>`, or `off` (default).
+
+If you hand-edit the generated `docker-compose.yml` socket mount, `devtun up` refuses to regenerate until config agrees (`devtun doctor` detects this and prints the exact `config set dockerSocket` command).
+
+### Multiple instances
+
+devtun can run several fully independent instances on one host -- each with its own Cloudflare tunnel, base FQDN, Docker network, containers, and (optionally) Docker daemon:
+
+```bash
+# Default instance lives at ~/.devtun; named instances at ~/.devtun/instances/<name>
+devtun setup -i alt --domain other.com --dev-subdomain dev.other.com \
+  --docker-socket /var/run/docker.sock --yes
+
+devtun instances         # List instances with FQDN, socket, and state
+devtun up -i alt         # Instance lifecycles are independent
+devtun add myapp web 3000 -i alt   # Project joins the 'alt' network, gets *.dev.other.com
+```
+
+Every command accepts `--instance <name>` (`-i`), falling back to `$DEVTUN_INSTANCE`, then the default instance `devtun`. Instance names become Docker network and container names (`<name>-traefik`, `<name>-tunnel`), so they're validated: lowercase/digits/hyphens, max 32 chars, and reserved names (`docker0`, `default`, `bridge`, `host`, `none`) are refused.
+
+**The daemon coupling**: Docker networks are per-daemon, so a project can only attach to an instance running on the same Docker daemon (the instance's `dockerSocket`). Which instance you `add` a project to determines both its public FQDN and which daemon it must run on.
+
 ### Scripting and CI
 
 `devtun` is designed to run unattended. When stdin or stdout is not a TTY (e.g., piped, in a CI job, or invoked from an automation tool), it never prompts.
@@ -257,7 +283,21 @@ Your project container connects to Traefik via the shared `devtun` Docker networ
 
 ## Dashboard
 
-Traefik dashboard: http://localhost:8080 -- shows all discovered routes and their health.
+The Traefik dashboard is off by default (nothing is published on host ports). Enable it per instance:
+
+```bash
+devtun config set dashboardPort 8080
+devtun up
+```
+
+Then http://localhost:8080 shows all discovered routes and their health.
+
+## Upgrading from single-instance versions
+
+Existing `~/.devtun` installs keep working as the default instance -- no migration needed, with two changes:
+
+- Host ports `80` and `8080` are no longer published (tunnel routing never needed them). Re-enable with `devtun config set publishHttpPort 80` / `dashboardPort 8080` if you relied on `http://localhost`.
+- If you had hand-edited `docker-compose.yml` to mount a different Docker socket, `devtun up` now refuses to clobber it. Adopt the edit with `devtun config set dockerSocket <path>`, then `devtun up`. If autostart is enabled, re-run `devtun autostart enable` so the unit exports `DOCKER_HOST`. If the old containers were ever created on a different daemon than the one in config, remove that stale pair once by hand (`docker rm -f devtun-traefik devtun-tunnel` against that daemon).
 
 ## Releasing
 

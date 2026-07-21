@@ -280,4 +280,78 @@ describe("config set (integration)", () => {
       await expect(config(["set", "domain"])).rejects.toThrow(/Usage/);
     });
   });
+
+  describe("infra keys", () => {
+    const baseCfg = {
+      domain: "example.com",
+      devSubdomain: "dev.example.com",
+      tunnelName: "dev-example-com",
+    };
+
+    it("sets dockerSocket and requires an absolute path", async () => {
+      home.writeConfig(baseCfg);
+      const { config } = await import("../../src/commands/config.js");
+
+      await config(["set", "dockerSocket", "/var/run/docker-lightsout.sock"]);
+      expect(home.readConfig().dockerSocket).toBe("/var/run/docker-lightsout.sock");
+
+      await expect(
+        config(["set", "dockerSocket", "relative/path.sock"])
+      ).rejects.toThrow(/absolute path/);
+    });
+
+    it("sets and clears publishHttpPort / dashboardPort", async () => {
+      home.writeConfig(baseCfg);
+      const { config } = await import("../../src/commands/config.js");
+
+      await config(["set", "publishHttpPort", "80"]);
+      await config(["set", "dashboardPort", "8080"]);
+      let cfg = home.readConfig();
+      expect(cfg.publishHttpPort).toBe(80);
+      expect(cfg.dashboardPort).toBe(8080);
+
+      await config(["set", "publishHttpPort", "off"]);
+      cfg = home.readConfig();
+      expect(cfg.publishHttpPort).toBeUndefined();
+
+      await expect(
+        config(["set", "dashboardPort", "not-a-port"])
+      ).rejects.toThrow(/Invalid dashboardPort/);
+      await expect(
+        config(["set", "dashboardPort", "70000"])
+      ).rejects.toThrow(/Invalid dashboardPort/);
+    });
+
+    it("targets a named instance with -i and leaves the default alone", async () => {
+      home.writeConfig(baseCfg);
+      home.writeConfig(
+        { domain: "other.com", devSubdomain: "dev.other.com", tunnelName: "t-alt" },
+        "alt"
+      );
+      const { config } = await import("../../src/commands/config.js");
+
+      await config(["set", "dockerSocket", "/var/run/docker-lightsout.sock", "-i", "alt"]);
+
+      expect(home.readConfig("alt").dockerSocket).toBe("/var/run/docker-lightsout.sock");
+      expect(home.readConfig().dockerSocket).toBeUndefined();
+    });
+
+    it("honors DEVTUN_INSTANCE when no flag is passed", async () => {
+      home.writeConfig(baseCfg);
+      home.writeConfig(
+        { domain: "other.com", devSubdomain: "dev.other.com", tunnelName: "t-alt" },
+        "alt"
+      );
+      process.env["DEVTUN_INSTANCE"] = "alt";
+      try {
+        const { config } = await import("../../src/commands/config.js");
+        await config(["set", "dashboardPort", "9090"]);
+      } finally {
+        delete process.env["DEVTUN_INSTANCE"];
+      }
+
+      expect(home.readConfig("alt").dashboardPort).toBe(9090);
+      expect(home.readConfig().dashboardPort).toBeUndefined();
+    });
+  });
 });

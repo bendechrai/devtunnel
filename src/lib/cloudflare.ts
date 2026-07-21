@@ -173,7 +173,8 @@ export async function getTunnelToken(
 export async function configureTunnel(
   accountId: string,
   tunnelId: string,
-  devSubdomain: string
+  devSubdomain: string,
+  traefikService: string
 ): Promise<void> {
   await cfFetch<CfTunnelConfig>(
     "PUT",
@@ -181,7 +182,7 @@ export async function configureTunnel(
     {
       config: {
         ingress: [
-          { hostname: `*.${devSubdomain}`, service: "http://devtun-traefik:80" },
+          { hostname: `*.${devSubdomain}`, service: `http://${traefikService}:80` },
           { service: "http_status:404" },
         ],
       },

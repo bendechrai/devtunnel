@@ -1,6 +1,7 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
+import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
 import { readOverrideMappings } from "../lib/compose.js";
 import { parseFlags } from "../lib/flags.js";
@@ -8,10 +9,11 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const listHelp: HelpDoc = {
   command: "list",
-  synopsis: "devtun list [--json] [--help]",
+  synopsis: "devtun list [--instance <name>] [--json] [--help]",
   description:
     "List all hostnames registered on the current Cloudflare zone. When run from a project directory,\nthe `service` column shows the local Traefik mapping (service:port) for hostnames whose router\nname matches the local override file.",
   flags: [
+    { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to list. Defaults to DEVTUN_INSTANCE or 'devtun'." },
     {
       name: "json",
       description:
@@ -35,11 +37,16 @@ const listHelp: HelpDoc = {
 
 export async function list(args: string[] = []): Promise<void> {
   if (handleHelp(args, listHelp)) return;
-  const { flags } = parseFlags(args, { boolean: ["json"] });
+  const { flags } = parseFlags(args, {
+    boolean: ["json"],
+    string: ["instance"],
+    aliases: { i: "instance" },
+  });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);
 
-  const config = loadConfig();
+  const inst = resolveInstance(flags);
+  const config = loadConfig(inst.dir);
   const token = resolveToken(config);
   cf.setToken(token);
 
