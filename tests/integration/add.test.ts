@@ -186,4 +186,80 @@ describe("add command (integration)", () => {
     expect(parsed.networks.alt).toEqual({ external: true });
     expect(parsed.networks.devtun).toBeUndefined();
   });
+
+  it("registers an out-of-wildcard --fqdn and adds a persisted tunnel ingress rule", async () => {
+    const zone = addZone(mock.state, "holodeck.build");
+    const account = mock.state.accounts.get(zone.accountId);
+    if (!account) throw new Error("account not seeded");
+    account.tunnels.set("tunnel-hd", {
+      id: "tunnel-hd",
+      name: "dev-holodeck-build-holodeck",
+      status: "healthy",
+      created_at: new Date().toISOString(),
+    });
+    home.writeConfig(
+      {
+        domain: "holodeck.build",
+        devSubdomain: "preview.holodeck.build",
+        tunnelName: "dev-holodeck-build-holodeck",
+        zoneId: zone.id,
+        accountId: zone.accountId,
+        tunnelId: "tunnel-hd",
+      },
+      "holodeck"
+    );
+
+    const { add } = await import("../../src/commands/add.js");
+    await add([
+      "app", "webapp", "3000",
+      "-i", "holodeck",
+      "--fqdn", "app.holodeck.build",
+      "--no-restart",
+    ]);
+
+    // Override uses the exact FQDN as the Host rule.
+    const parsed = parseYaml(
+      readFileSync(join(projectDir.path, "docker-compose.override.yml"), "utf-8")
+    );
+    expect(parsed.services.webapp.labels["traefik.http.routers.app.rule"]).toBe(
+      "Host(`app.holodeck.build`)"
+    );
+
+    // FQDN persisted in config for setup-idempotency.
+    expect(home.readConfig("holodeck").extraFqdns).toEqual(["app.holodeck.build"]);
+
+    // Custom hostname registered on Cloudflare.
+    const chs = [...zone.customHostnames.values()].map((h) => h.hostname);
+    expect(chs).toContain("app.holodeck.build");
+
+    // Tunnel ingress now routes the FQDN before the wildcard, then 404.
+    const cfg = account.tunnelConfigs.get("tunnel-hd") as {
+      config: { ingress: Array<{ hostname?: string; service: string }> };
+    };
+    expect(cfg.config.ingress).toEqual([
+      { hostname: "app.holodeck.build", service: "http://holodeck-traefik:80" },
+      { hostname: "*.preview.holodeck.build", service: "http://holodeck-traefik:80" },
+      { service: "http_status:404" },
+    ]);
+  });
+
+  it("rejects a --fqdn outside the instance's zone", async () => {
+    const zone = addZone(mock.state, "holodeck.build");
+    home.writeConfig(
+      {
+        domain: "holodeck.build",
+        devSubdomain: "preview.holodeck.build",
+        tunnelName: "dev-holodeck-build-holodeck",
+        zoneId: zone.id,
+        accountId: zone.accountId,
+        tunnelId: "tunnel-hd",
+      },
+      "holodeck"
+    );
+
+    const { add } = await import("../../src/commands/add.js");
+    await expect(
+      add(["app", "webapp", "3000", "-i", "holodeck", "--fqdn", "app.vennlabs.dev", "--no-restart"])
+    ).rejects.toThrow(/not within/);
+  });
 });

@@ -1,9 +1,9 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { loadConfig, dockerSocketOf } from "../lib/config.js";
+import { loadConfig, saveConfig, dockerSocketOf } from "../lib/config.js";
 import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
-import { validateProjectName } from "../lib/validate.js";
+import { validateProjectName, validateFqdn } from "../lib/validate.js";
 import {
   addOverrideLabels,
   CACHE_MODES,
@@ -17,7 +17,7 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const addHelp: HelpDoc = {
   command: "add",
-  synopsis: "devtun add <name> <service> <port> [--instance <name>] [--cache <mode>] [--restart|--no-restart|--yes] [--help]",
+  synopsis: "devtun add <name> <service> <port> [--instance <name>] [--fqdn <hostname>] [--cache <mode>] [--restart|--no-restart|--yes] [--help]",
   description:
     "Register a project hostname. Creates a Cloudflare DNS record + custom hostname (with edge SSL cert),\nand writes Traefik routing labels into the project's docker-compose.override.yml.\nRun from the project directory.",
   args: [
@@ -27,6 +27,7 @@ const addHelp: HelpDoc = {
   ],
   flags: [
     { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to attach to (determines the FQDN, network, and Docker daemon). Defaults to DEVTUN_INSTANCE or 'devtun'." },
+    { name: "fqdn", type: "string", description: "Register this exact hostname instead of <name>.<devSubdomain>. Must be within the instance's zone. Hostnames outside the dev wildcard (e.g. app.example.com) also get a dedicated tunnel ingress rule, persisted so setup re-runs keep it." },
     { name: "cache", type: "string", default: DEFAULT_CACHE_MODE, description: "Cache-control headers to inject via Traefik. 'none' = no middleware (upstream headers pass through), 'cdn' = CDN-Cache-Control: no-store (Cloudflare edge bypass only), 'all' = CDN + browser Cache-Control: no-store (defeats iOS Safari/Brave caches too)." },
     { name: "restart", description: "Run `docker compose up -d` after writing the override file. Never prompts." },
     { name: "no-restart", description: "Skip the container restart. Never prompts." },
@@ -53,7 +54,7 @@ export async function add(args: string[] = []): Promise<void> {
   if (handleHelp(args, addHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
-    string: ["cache", "instance"],
+    string: ["cache", "instance", "fqdn"],
     aliases: { y: "yes", i: "instance" },
   });
 
@@ -77,7 +78,12 @@ export async function add(args: string[] = []): Promise<void> {
   const token = resolveToken(config);
   cf.setToken(token);
 
-  const hostname = `${name}.${config.devSubdomain}`;
+  const fqdnFlag = typeof flags["fqdn"] === "string" ? flags["fqdn"] : undefined;
+  if (fqdnFlag) validateFqdn(fqdnFlag, config.domain);
+  const hostname = fqdnFlag ?? `${name}.${config.devSubdomain}`;
+  // FQDNs outside the dev wildcard need their own tunnel ingress rule.
+  const needsIngressRule =
+    fqdnFlag !== undefined && !hostname.endsWith(`.${config.devSubdomain}`);
   const zoneId = config.zoneId!;
   const fallbackHost = `tunnel-origin.${config.domain}`;
 
@@ -144,6 +150,33 @@ export async function add(args: string[] = []): Promise<void> {
     `Updated docker-compose.override.yml (${service}:${port}, cache=${cache})`
   );
   out.blank();
+
+  // --- Tunnel ingress (only for FQDNs outside the dev wildcard) ---
+  if (needsIngressRule) {
+    if (!config.accountId || !config.tunnelId) {
+      throw new Error(
+        "Instance has no tunnel yet. Run `devtun setup" +
+          (inst.isDefault ? "" : ` -i ${inst.name}`) +
+          "` before adding an out-of-wildcard FQDN."
+      );
+    }
+    const fqdns = new Set(config.extraFqdns ?? []);
+    if (!fqdns.has(hostname)) {
+      out.step(3, "Tunnel ingress...");
+      fqdns.add(hostname);
+      config.extraFqdns = [...fqdns];
+      saveConfig(inst.dir, config);
+      await cf.configureTunnel(
+        config.accountId,
+        config.tunnelId,
+        config.devSubdomain,
+        `${inst.name}-traefik`,
+        config.extraFqdns
+      );
+      out.success(`Ingress rule added: ${hostname} -> traefik`);
+      out.blank();
+    }
+  }
 
   // --- Restart decision ---
   const shouldRestart = await resolveRestart(flags);

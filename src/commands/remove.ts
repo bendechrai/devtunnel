@@ -1,9 +1,9 @@
 import * as cf from "../lib/cloudflare.js";
 import * as out from "../lib/output.js";
-import { loadConfig, dockerSocketOf } from "../lib/config.js";
+import { loadConfig, saveConfig, dockerSocketOf } from "../lib/config.js";
 import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
-import { validateProjectName } from "../lib/validate.js";
+import { validateProjectName, validateFqdn } from "../lib/validate.js";
 import { removeOverrideLabels } from "../lib/compose.js";
 import { confirm } from "../lib/prompt.js";
 import { restartProject } from "../lib/docker.js";
@@ -12,7 +12,7 @@ import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const removeHelp: HelpDoc = {
   command: "remove",
-  synopsis: "devtun remove <name> [--instance <name>] [--restart|--no-restart|--yes] [--help]",
+  synopsis: "devtun remove <name> [--instance <name>] [--fqdn <hostname>] [--restart|--no-restart|--yes] [--help]",
   description:
     "Remove a project hostname. Deletes the Cloudflare custom hostname, DNS record, and TXT verification\nrecord (if present), and strips the Traefik labels from the project's docker-compose.override.yml.\nRun from the project directory so the local file is cleaned up.",
   args: [
@@ -20,6 +20,7 @@ const removeHelp: HelpDoc = {
   ],
   flags: [
     { name: "instance", aliases: ["i"], type: "string", description: "devtun instance the project was added to. Defaults to DEVTUN_INSTANCE or 'devtun'." },
+    { name: "fqdn", type: "string", description: "The exact hostname used with `devtun add --fqdn`. Also drops its dedicated tunnel ingress rule." },
     { name: "restart", description: "Run `docker compose up -d` after cleaning the override file. Never prompts." },
     { name: "no-restart", description: "Skip the container restart. Never prompts." },
     { name: "yes", aliases: ["y"], description: "Equivalent to --restart." },
@@ -42,7 +43,7 @@ export async function remove(args: string[] = []): Promise<void> {
   if (handleHelp(args, removeHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["yes", "restart"],
-    string: ["instance"],
+    string: ["instance", "fqdn"],
     aliases: { y: "yes", i: "instance" },
   });
 
@@ -59,7 +60,9 @@ export async function remove(args: string[] = []): Promise<void> {
   const token = resolveToken(config);
   cf.setToken(token);
 
-  const hostname = `${name}.${config.devSubdomain}`;
+  const fqdnFlag = typeof flags["fqdn"] === "string" ? flags["fqdn"] : undefined;
+  if (fqdnFlag) validateFqdn(fqdnFlag, config.domain);
+  const hostname = fqdnFlag ?? `${name}.${config.devSubdomain}`;
   const zoneId = config.zoneId!;
 
   out.header(`Removing ${hostname}`);
@@ -88,6 +91,22 @@ export async function remove(args: string[] = []): Promise<void> {
   if (txtRecord) {
     await cf.deleteDnsRecord(zoneId, txtRecord.id);
     out.info("Verification TXT record removed.");
+  }
+
+  // --- Tunnel ingress (drop the dedicated rule for out-of-wildcard FQDNs) ---
+  if (config.extraFqdns?.includes(hostname)) {
+    config.extraFqdns = config.extraFqdns.filter((f) => f !== hostname);
+    saveConfig(inst.dir, config);
+    if (config.accountId && config.tunnelId) {
+      await cf.configureTunnel(
+        config.accountId,
+        config.tunnelId,
+        config.devSubdomain,
+        `${inst.name}-traefik`,
+        config.extraFqdns
+      );
+      out.info(`Ingress rule removed: ${hostname}`);
+    }
   }
 
   // --- Override file ---

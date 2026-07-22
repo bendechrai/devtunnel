@@ -345,6 +345,7 @@ function list(inst: InstanceContext, asJson: boolean): void {
   out.info(`dockerSocket:    ${cfg.dockerSocket ?? "(default: /var/run/docker.sock)"}`);
   out.info(`publishHttpPort: ${cfg.publishHttpPort || "off"}`);
   out.info(`dashboardPort:   ${cfg.dashboardPort || "off"}`);
+  out.info(`extraFqdns:      ${cfg.extraFqdns?.length ? cfg.extraFqdns.join(", ") : "(none)"}`);
   out.blank();
   out.dim(`${inst.dir}/config.json`);
   out.blank();

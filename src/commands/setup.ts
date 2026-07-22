@@ -233,9 +233,13 @@ export async function setup(args: string[] = []): Promise<void> {
     accountId,
     config.tunnelId!,
     config.devSubdomain,
-    `${inst.name}-traefik`
+    `${inst.name}-traefik`,
+    config.extraFqdns ?? []
   );
   out.success(`Ingress: *.${config.devSubdomain} -> traefik`);
+  for (const fqdn of config.extraFqdns ?? []) {
+    out.info(`Ingress: ${fqdn} -> traefik`);
+  }
   out.blank();
 
   // --- Step 5: SSL ---

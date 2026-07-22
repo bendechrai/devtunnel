@@ -175,6 +175,17 @@ devtun add myapp web 3000 -i alt   # Project joins the 'alt' network, gets *.dev
 
 Every command accepts `--instance <name>` (`-i`), falling back to `$DEVTUN_INSTANCE`, then the default instance `devtun`. Instance names become Docker network and container names (`<name>-traefik`, `<name>-tunnel`), so they're validated: lowercase/digits/hyphens, max 32 chars, and reserved names (`docker0`, `default`, `bridge`, `host`, `none`) are refused.
 
+#### Custom hostnames outside the dev subdomain (`--fqdn`)
+
+`devtun add` normally registers `<name>.<devSubdomain>`, which the tunnel's wildcard ingress (`*.<devSubdomain>`) already routes. To route a hostname *outside* that wildcard -- e.g. an apex-level `app.holodeck.build` on an instance whose dev subdomain is `preview.holodeck.build` -- pass `--fqdn`:
+
+```bash
+devtun add app webapp 3000 -i holodeck --fqdn app.holodeck.build
+devtun remove app -i holodeck --fqdn app.holodeck.build
+```
+
+The hostname must live inside the instance's zone. Beyond the usual DNS record + custom hostname + Traefik `Host()` label, devtun adds a dedicated tunnel ingress rule for the FQDN and persists it in the instance config (`extraFqdns`), so re-running `devtun setup` keeps the rule. Hostnames that *are* under the dev wildcard don't need `--fqdn` and get no extra ingress rule.
+
 **The daemon coupling**: Docker networks are per-daemon, so a project can only attach to an instance running on the same Docker daemon (the instance's `dockerSocket`). Which instance you `add` a project to determines both its public FQDN and which daemon it must run on.
 
 ### Scripting and CI

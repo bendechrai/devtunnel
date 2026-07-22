@@ -174,15 +174,20 @@ export async function configureTunnel(
   accountId: string,
   tunnelId: string,
   devSubdomain: string,
-  traefikService: string
+  traefikService: string,
+  extraFqdns: string[] = []
 ): Promise<void> {
+  const service = `http://${traefikService}:80`;
   await cfFetch<CfTunnelConfig>(
     "PUT",
     `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`,
     {
       config: {
         ingress: [
-          { hostname: `*.${devSubdomain}`, service: `http://${traefikService}:80` },
+          // Specific FQDNs first (they fall outside the wildcard), then the
+          // dev wildcard, then the catch-all.
+          ...extraFqdns.map((hostname) => ({ hostname, service })),
+          { hostname: `*.${devSubdomain}`, service },
           { service: "http_status:404" },
         ],
       },

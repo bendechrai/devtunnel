@@ -13,6 +13,12 @@ export interface DevtunnelConfig {
   publishHttpPort?: number | false;
   /** Publish the Traefik dashboard on 127.0.0.1:<port>. Off by default. */
   dashboardPort?: number | false;
+  /**
+   * Fully-qualified hostnames outside the dev wildcard that also route to this
+   * instance's Traefik (e.g. apex-level app.holodeck.build). Each needs its own
+   * tunnel ingress rule; the dev wildcard covers *.<devSubdomain> only.
+   */
+  extraFqdns?: string[];
 }
 
 export interface CloudflareResponse<T> {

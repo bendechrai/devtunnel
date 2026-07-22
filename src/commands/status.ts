@@ -3,13 +3,13 @@ import * as out from "../lib/output.js";
 import { loadConfig } from "../lib/config.js";
 import { resolveInstance } from "../lib/instance.js";
 import { resolveToken } from "../lib/token.js";
-import { validateProjectName } from "../lib/validate.js";
+import { validateProjectName, validateFqdn } from "../lib/validate.js";
 import { parseFlags } from "../lib/flags.js";
 import { handleHelp, type HelpDoc } from "../lib/help.js";
 
 const statusHelp: HelpDoc = {
   command: "status",
-  synopsis: "devtun status [name] [--instance <name>] [--json] [--help]",
+  synopsis: "devtun status [name] [--instance <name>] [--fqdn <hostname>] [--json] [--help]",
   description:
     "Show the status of a specific project hostname, or (with no name) the overall infrastructure status\nincluding the zone, tunnel, fallback origin, and total registered projects.",
   args: [
@@ -17,6 +17,7 @@ const statusHelp: HelpDoc = {
   ],
   flags: [
     { name: "instance", aliases: ["i"], type: "string", description: "devtun instance to inspect. Defaults to DEVTUN_INSTANCE or 'devtun'." },
+    { name: "fqdn", type: "string", description: "Check this exact hostname (as registered with `devtun add --fqdn`) instead of <name>.<devSubdomain>." },
     {
       name: "json",
       description:
@@ -40,13 +41,14 @@ export async function status(args: string[] = []): Promise<void> {
   if (handleHelp(args, statusHelp)) return;
   const { positional, flags } = parseFlags(args, {
     boolean: ["json"],
-    string: ["instance"],
+    string: ["instance", "fqdn"],
     aliases: { i: "instance" },
   });
   const asJson = flags["json"] === true;
   if (asJson) out.setJsonMode(true);
 
   const name = positional[0];
+  const fqdnFlag = typeof flags["fqdn"] === "string" ? flags["fqdn"] : undefined;
 
   const inst = resolveInstance(flags);
   const config = loadConfig(inst.dir);
@@ -55,9 +57,15 @@ export async function status(args: string[] = []): Promise<void> {
 
   const zoneId = config.zoneId!;
 
-  if (name) {
-    validateProjectName(name);
-    const hostname = `${name}.${config.devSubdomain}`;
+  if (name || fqdnFlag) {
+    let hostname: string;
+    if (fqdnFlag) {
+      validateFqdn(fqdnFlag, config.domain);
+      hostname = fqdnFlag;
+    } else {
+      validateProjectName(name);
+      hostname = `${name}.${config.devSubdomain}`;
+    }
     const ch = await cf.findCustomHostname(zoneId, hostname);
 
     if (!ch) {
@@ -65,7 +73,11 @@ export async function status(args: string[] = []): Promise<void> {
         out.json({ hostname, registered: false });
       } else {
         out.error(`${hostname} is not registered.`);
-        out.info("Add it with: devtun add " + name);
+        out.info(
+          fqdnFlag
+            ? `Add it with: devtun add <name> <service> <port> --fqdn ${fqdnFlag}`
+            : "Add it with: devtun add " + name
+        );
       }
       process.exit(1);
       return;
