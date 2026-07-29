@@ -1,3 +1,16 @@
+# [1.4.0](https://github.com/bendechrai/devtunnel/compare/v1.3.0...v1.4.0) (2026-07-29)
+
+
+### Bug Fixes
+
+* exclude --fqdn hostnames from doctor orphan detection ([2383e7d](https://github.com/bendechrai/devtunnel/commit/2383e7d76f3d6f5cae6a62fa07c1f9349403fda7))
+
+
+### Features
+
+* register hostnames outside the dev wildcard via devtun add --fqdn ([ac41dd3](https://github.com/bendechrai/devtunnel/commit/ac41dd3e64838547575fd70d1e19fe538bcb9e5d))
+* support multiple independent instances (per-daemon, per-FQDN) ([82b7603](https://github.com/bendechrai/devtunnel/commit/82b76037b856048f0ffdc72bdfcdfa2ffc567876))
+
 # [1.3.0](https://github.com/bendechrai/devtunnel/compare/v1.2.0...v1.3.0) (2026-06-29)
 
 
