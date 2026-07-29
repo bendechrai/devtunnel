@@ -160,6 +160,52 @@ describe("doctor command (integration)", () => {
     expect(output).toContain("leftover.preview.example.com");
   });
 
+  it("does not flag a --fqdn hostname (in extraFqdns) as an orphan", async () => {
+    const zone = addZone(mock.state, "example.com");
+    zone.fallbackOrigin = { origin: "tunnel-origin.example.com", status: "active" };
+    const account = mock.state.accounts.get(zone.accountId);
+    if (!account) throw new Error("account not seeded");
+    account.tunnels.set("tunnel-1", {
+      id: "tunnel-1",
+      name: "dev-example-com",
+      status: "healthy",
+      created_at: new Date().toISOString(),
+    });
+    // One on the dev wildcard + one intentional out-of-wildcard FQDN.
+    zone.customHostnames.set("ch1", {
+      id: "ch1",
+      hostname: "myapp.dev.example.com",
+      status: "active",
+      created_at: new Date().toISOString(),
+      ssl: { status: "active", method: "http", type: "dv" },
+    });
+    zone.customHostnames.set("ch2", {
+      id: "ch2",
+      hostname: "app.example.com",
+      status: "active",
+      created_at: new Date().toISOString(),
+      ssl: { status: "active", method: "http", type: "dv" },
+    });
+    home.writeConfig({
+      domain: "example.com",
+      devSubdomain: "dev.example.com",
+      tunnelName: "dev-example-com",
+      dockerSocket: home.homeDir,
+      zoneId: zone.id,
+      accountId: zone.accountId,
+      tunnelId: "tunnel-1",
+      extraFqdns: ["app.example.com"],
+    });
+
+    const { doctor } = await import("../../src/commands/doctor.js");
+    await doctor();
+
+    const output = all();
+    expect(output).toContain("[OK] custom hostnames");
+    expect(output).not.toContain("[WARN] custom hostnames");
+    expect(output).toContain("1 custom FQDN(s)");
+  });
+
   it("fails on missing config and exits 1", async () => {
     const { doctor } = await import("../../src/commands/doctor.js");
     await expect(doctor()).rejects.toThrow(/__exit_1__/);

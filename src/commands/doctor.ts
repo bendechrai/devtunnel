@@ -254,13 +254,24 @@ export async function doctor(args: string[] = []): Promise<void> {
   try {
     const hostnames = await cf.listCustomHostnames(zoneId);
     const suffix = `.${cfg.devSubdomain}`;
-    const orphans = hostnames.filter((h) => !h.hostname.endsWith(suffix));
-    const matching = hostnames.length - orphans.length;
+    const extra = new Set(cfg.extraFqdns ?? []);
+    // Hostnames outside the dev wildcard that were registered on purpose
+    // via `devtun add --fqdn` (tracked in config.extraFqdns) are not orphans.
+    const orphans = hostnames.filter(
+      (h) => !h.hostname.endsWith(suffix) && !extra.has(h.hostname)
+    );
+    const onSubdomain = hostnames.filter((h) => h.hostname.endsWith(suffix)).length;
+    const onExtra = hostnames.length - onSubdomain - orphans.length;
 
     if (hostnames.length === 0) {
       record("custom hostnames", "ok", "none registered");
     } else if (orphans.length === 0) {
-      record("custom hostnames", "ok", `${matching} on ${cfg.devSubdomain}`);
+      const extraNote = onExtra ? ` + ${onExtra} custom FQDN(s)` : "";
+      record(
+        "custom hostnames",
+        "ok",
+        `${onSubdomain} on ${cfg.devSubdomain}${extraNote}`
+      );
     } else {
       record(
         "custom hostnames",
